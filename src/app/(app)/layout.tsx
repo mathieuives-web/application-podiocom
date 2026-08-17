@@ -1,3 +1,4 @@
+.import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
@@ -26,9 +27,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen">
       <aside className="w-60 shrink-0 bg-slate-900 text-slate-100 flex flex-col">
-        <div className="px-5 py-5 border-b border-slate-800">
-          <p className="font-bold text-lg leading-tight">Podiocom</p>
-          <p className="text-xs text-slate-400">Fleet Manager</p>
+        <div className="px-5 py-5 border-b border-slate-800 flex items-center gap-3">
+          <Image
+            src="/podiocom-logo.png"
+            alt="Podiocom"
+            width={40}
+            height={40}
+            className="rounded-md bg-white p-1"
+          />
+          <div>
+            <p className="font-bold text-lg leading-tight">Podiocom</p>
+            <p className="text-xs text-slate-400">Fleet Manager</p>
+          </div>
         </div>
         <nav className="flex-1 py-4 space-y-1 px-3">
           {links.map((l) => (
