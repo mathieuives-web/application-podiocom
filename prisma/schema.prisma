@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EMPLOYEE
+  DRIVER
+  RENTER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(EMPLOYEE)
+  phone        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  partnerId    String?
+  partner      Partner? @relation(fields: [partnerId], references: [id])
+
+  bookingsAsDriver Booking[]  @relation("DriverBookings")
+  documents        Document[]
+}
+
+enum VehicleType {
+  TRUCK
+  TRAILER
+}
+
+model Vehicle {
+  id            String      @id @default(cuid())
+  type          VehicleType
+  name          String?
+  plate         String      @unique
+  chassisNumber String      @unique
+  brand         String?
+  model         String?
+  year          Int?
+  notes         String?
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  maintenanceRecords MaintenanceRecord[]
+  inspections        Inspection[]
+  plannedTasks       PlannedTask[]
+  documents          Document[]
+  quotes             Quote[]
+  bookings           Booking[]
+}
+
+model MaintenanceRecord {
+  id          String   @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  date        DateTime
+  description String
+  cost        Float
+  providerId  String?
+  provider    Partner? @relation(fields: [providerId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+enum InspectionType {
+  CT
+  MINE
+}
+
+model Inspection {
+  id             String         @id @default(cuid())
+  vehicleId      String
+  vehicle        Vehicle        @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  type           InspectionType
+  validatedOn    DateTime
+  expiresOn      DateTime
+  notes          String?
+  createdAt      DateTime       @default(now())
+}
+
+model ValidityConfig {
+  id                 String         @id @default(cuid())
+  vehicleType        VehicleType
+  inspectionType     InspectionType
+  validityMonths     Int
+  reminderDaysBefore Int            @default(30)
+
+  @@unique([vehicleType, inspectionType])
+}
+
+enum PartnerType {
+  PROVIDER
+  RENTER
+}
+
+model Partner {
+  id         String      @id @default(cuid())
+  type       PartnerType
+  name       String
+  contact    String?
+  phone      String?
+  email      String?
+  speciality String?
+  notes      String?
+  active     Boolean     @default(true)
+  createdAt  DateTime    @default(now())
+
+  maintenanceRecords MaintenanceRecord[]
+  plannedTasks       PlannedTask[]
+  bookings           Booking[]
+  userAccounts       User[]
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+model PlannedTask {
+  id          String     @id @default(cuid())
+  vehicleId   String
+  vehicle     Vehicle    @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  description String
+  providerId  String?
+  provider    Partner?   @relation(fields: [providerId], references: [id])
+  dueDate     DateTime?
+  status      TaskStatus @default(TODO)
+  createdAt   DateTime   @default(now())
+}
+
+model Quote {
+  id           String   @id @default(cuid())
+  vehicleId    String?
+  vehicle      Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  title        String
+  filePath     String
+  fileName     String
+  uploadedAt   DateTime @default(now())
+  uploadedById String?
+}
+
+enum BookingKind {
+  MISSION
+  LOCATION
+}
+
+enum BookingStatus {
+  PLANNED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+model Booking {
+  id                String        @id @default(cuid())
+  vehicleId         String
+  vehicle           Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  kind              BookingKind   @default(MISSION)
+  status            BookingStatus @default(PLANNED)
+  driverId          String?
+  driver            User?         @relation("DriverBookings", fields: [driverId], references: [id])
+  renterId          String?
+  renter            Partner?      @relation(fields: [renterId], references: [id])
+  departureDate     DateTime
+  departureLocation String?
+  arrivalDate       DateTime?
+  arrivalLocation   String?
+  notes             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  documents Document[]
+}
+
+enum DocumentType {
+  PHOTO
+  TECH_SHEET
+  FUEL_RECEIPT
+  HOTEL_INVOICE
+  DAMAGE
+  OTHER
+}
+
+model Document {
+  id           String       @id @default(cuid())
+  type         DocumentType
+  filePath     String
+  fileName     String
+  vehicleId    String?
+  vehicle      Vehicle?     @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  bookingId    String?
+  booking      Booking?     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  uploadedById String?
+  uploadedBy   User?        @relation(fields: [uploadedById], references: [id])
+  amount       Float?
+  note         String?
+  createdAt    DateTime     @default(now())
+}
