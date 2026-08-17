@@ -1,3 +1,4 @@
+.import Image from "next/image";
 import { signIn } from "@/auth";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
@@ -28,7 +29,15 @@ export default async function LoginPage({
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
+        <div className="mb-8 text-center flex flex-col items-center">
+          <Image
+            src="/podiocom-logo.png"
+            alt="Podiocom"
+            width={96}
+            height={96}
+            className="mb-3"
+            priority
+          />
           <h1 className="text-2xl font-bold text-slate-900">Podiocom Fleet</h1>
           <p className="text-sm text-slate-500 mt-1">Gestion de parc &amp; planning</p>
         </div>
