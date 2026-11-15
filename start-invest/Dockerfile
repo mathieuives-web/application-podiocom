@@ -38,6 +38,11 @@ RUN mkdir -p /opt/prisma-cli && cd /opt/prisma-cli \
  && npm init -y >/dev/null \
  && npm install --omit=dev --no-audit --no-fund "prisma@$(node -p "require('/tmp/package.json').dependencies.prisma")" \
  && rm /tmp/package.json && npm cache clean --force
+# Navigateur Chromium (invisible) pour le robot de connexion aux logiciels sans API (Auto Cerfa...)
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+COPY --from=builder /app/node_modules/playwright-core ./node_modules/playwright-core
+RUN npx --yes "playwright-core@$(node -p "require('./node_modules/playwright-core/package.json').version")" install --with-deps chromium \
+ && rm -rf /var/lib/apt/lists/* /root/.npm
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 # Le démarrage prépare le volume (en root) puis lance l'application avec l'utilisateur « node »
 # sans privilèges (voir docker-entrypoint.sh).

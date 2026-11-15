@@ -1,9 +1,9 @@
-export type FieldDef = { name: string; label: string; secret?: boolean; placeholder?: string; help?: string };
+export type FieldDef = { name: string; label: string; secret?: boolean; placeholder?: string; help?: string; optional?: boolean };
 
 export type ProviderDef = {
   id: string;
   name: string;
-  kind: "Banque" | "Paiements" | "Facturation" | "Agrégateur bancaire" | "Comptabilité";
+  kind: "Banque" | "Paiements" | "Facturation" | "Agrégateur bancaire" | "Comptabilité" | "Gestion";
   description: string;
   fields: FieldDef[];
   docs: string;

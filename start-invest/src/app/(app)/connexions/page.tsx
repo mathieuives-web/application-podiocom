@@ -152,7 +152,7 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                 {p.fields.map((f) => (
                   <div key={f.name}>
                     <label className="label">{f.label}</label>
-                    <input name={f.name} type={f.secret ? "password" : "text"} autoComplete="off" className="input" placeholder={f.placeholder} required />
+                    <input name={f.name} type={f.secret ? "password" : "text"} autoComplete="off" className="input" placeholder={f.placeholder} required={!f.optional} />
                   </div>
                 ))}
                 <p className="text-xs text-slate-500">Où trouver la clé : {p.docs}</p>

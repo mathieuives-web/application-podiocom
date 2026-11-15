@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -15,8 +16,8 @@ export async function addIntegration(formData: FormData) {
   const creds: Record<string, string> = {};
   for (const f of provider.fields) {
     const v = (formData.get(f.name) ?? "").toString().trim();
-    if (!v) redirect(`/connexions?msg=${encodeURIComponent(`Champ manquant : ${f.label}`)}`);
-    creds[f.name] = v;
+    if (!v && !f.optional) redirect(`/connexions?msg=${encodeURIComponent(`Champ manquant : ${f.label}`)}`);
+    if (v) creds[f.name] = v;
   }
   const integ = await prisma.integration.create({
     data: {
@@ -27,6 +28,12 @@ export async function addIntegration(formData: FormData) {
     },
   });
   await audit(me, "connexion_outil_ajoutee", `${provider.name} — société ${integ.companyId}`);
+  if (provider.id === "AUTOCERFA") {
+    // Le robot met plusieurs minutes : il travaille en arrière-plan.
+    after(() => syncIntegration(integ.id, { force: true }).then(() => undefined).catch(() => undefined));
+    revalidatePath("/connexions");
+    redirect(`/connexions?msg=${encodeURIComponent("Auto Cerfa enregistré. Le robot se connecte maintenant (2 à 5 minutes) : rechargez la page pour voir le résultat, puis allez dans Véhicules.")}`);
+  }
   let msg: string;
   try {
     const r = await syncIntegration(integ.id);
@@ -42,6 +49,13 @@ export async function addIntegration(formData: FormData) {
 export async function syncNow(integrationId: string) {
   const me = await requireAdmin();
   await audit(me, "synchronisation_manuelle", integrationId);
+  const integ = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
+  if (integ.provider === "AUTOCERFA") {
+    await prisma.integration.update({ where: { id: integrationId }, data: { status: "PENDING", lastError: null } });
+    after(() => syncIntegration(integrationId, { force: true }).then(() => undefined).catch(() => undefined));
+    revalidatePath("/connexions");
+    redirect(`/connexions?msg=${encodeURIComponent("Le robot Auto Cerfa travaille (2 à 5 minutes) : rechargez la page pour voir le résultat.")}`);
+  }
   let msg: string;
   try {
     const r = await syncIntegration(integrationId);

@@ -7,6 +7,7 @@ import { syncStripe } from "./stripe";
 import { syncPennylane } from "./pennylane";
 import { syncShineMcp, shineMcpFresh, SHINE_MCP_URL, type ShineMcpCreds } from "./shine-mcp";
 import { syncEnableBanking, type BankCreds } from "./enablebanking";
+import { syncAutoCerfa, AUTOCERFA_DEFAULT_URL, type AutoCerfaCreds } from "./autocerfa";
 
 export const PROVIDERS: ProviderDef[] = [
   {
@@ -61,6 +62,20 @@ export const PROVIDERS: ProviderDef[] = [
     docs: "Pennylane → Paramètres → Connectivité → Développeurs → Générer un jeton (lecture)",
     available: true,
   },
+  {
+    id: "AUTOCERFA",
+    name: "Auto Cerfa (stock et ventes de véhicules)",
+    kind: "Gestion",
+    description:
+      "Auto Cerfa n'a pas d'API : un robot se connecte une fois par jour avec vos identifiants (chiffrés, jamais montrés à l'IA), télécharge l'export Excel du stock et des ventes et les importe (véhicules, frais, marges, vendeurs, commissions). Lecture seule : il ne clique jamais sur un bouton qui modifie quelque chose. Conseil : créez dans Auto Cerfa un utilisateur dédié, sans double vérification par SMS.",
+    fields: [
+      { name: "login", label: "Identifiant Auto Cerfa (e-mail)" },
+      { name: "password", label: "Mot de passe Auto Cerfa", secret: true },
+      { name: "url", label: "Adresse de la page de connexion (facultatif)", placeholder: AUTOCERFA_DEFAULT_URL, optional: true },
+    ],
+    docs: "À choisir pour La Fabrique Automobile. Première connexion : 2 à 5 minutes, le robot apprend le chemin vers les exports.",
+    available: true,
+  },
 
   {
     id: "AUTRES",
@@ -73,7 +88,7 @@ export const PROVIDERS: ProviderDef[] = [
   },
 ];
 
-export async function syncIntegration(integrationId: string): Promise<SyncResult> {
+export async function syncIntegration(integrationId: string, opts: { force?: boolean } = {}): Promise<SyncResult> {
   const integ = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
   const creds = decryptJson<Record<string, string>>(integ.credentials);
   try {
@@ -89,6 +104,11 @@ export async function syncIntegration(integrationId: string): Promise<SyncResult
     } else if (integ.provider === "QONTO") result = await syncQonto(integ, creds as { login: string; secretKey: string });
     else if (integ.provider === "STRIPE") result = await syncStripe(integ, creds as { secretKey: string });
     else if (integ.provider === "PENNYLANE") result = await syncPennylane(integ, creds as { token: string });
+    else if (integ.provider === "AUTOCERFA") {
+      const r = await syncAutoCerfa(integ, creds as unknown as AutoCerfaCreds, opts.force);
+      if (r.skipped) return r; // déjà passé aujourd'hui
+      result = r;
+    }
     else throw new Error(`Connecteur inconnu : ${integ.provider}`);
     await prisma.integration.update({
       where: { id: integ.id },

@@ -27,6 +27,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  serverExternalPackages: ["playwright-core"],
   poweredByHeader: false,
   experimental: {
     // Dépôt de bilans et relevés PDF
