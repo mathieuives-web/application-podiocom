@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/vehicules", label: "Véhicules" },
   { href: "/equipe", label: "Équipe & commissions", admin: true },
   { href: "/terrain", label: "Terrain (WhatsApp)" },
+  { href: "/projets", label: "Projets", admin: true },
   { href: "/archives", label: "Archives" },
   { href: "/connexions", label: "Connexions", admin: true },
   { href: "/acces", label: "Accès" },

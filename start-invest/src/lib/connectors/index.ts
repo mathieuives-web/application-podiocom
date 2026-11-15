@@ -9,6 +9,7 @@ import { syncShineMcp, shineMcpFresh, SHINE_MCP_URL, type ShineMcpCreds } from "
 import { syncEnableBanking, type BankCreds } from "./enablebanking";
 import { checkWhatsApp, whatsappVerifyToken, type WhatsAppCreds } from "./whatsapp";
 import { googleClient } from "./google";
+import { checkGitHub } from "./github";
 import { syncAutoCerfa, AUTOCERFA_DEFAULT_URL, type AutoCerfaCreds } from "./autocerfa";
 
 export const PROVIDERS: ProviderDef[] = [
@@ -103,6 +104,16 @@ export const PROVIDERS: ProviderDef[] = [
     docs: "Meta for Developers → votre application → WhatsApp → Configuration de l'API",
     available: true,
   },
+  {
+    id: "GITHUB",
+    name: "GitHub (projets)",
+    kind: "Gestion",
+    description:
+      "Lecture seule des dépôts de vos projets (CLEAN, Vente Auto Sécurité...) pour que chaque chef de projet voie l'état réel : README, derniers changements, tâches ouvertes, builds. Choisissez la société Start Invest.",
+    fields: [{ name: "token", label: "Jeton GitHub (fine-grained, lecture seule)", secret: true, placeholder: "github_pat_..." }],
+    docs: "GitHub → Settings → Developer settings → Fine-grained tokens → Generate : dépôts de vos projets, permissions Contents, Issues, Pull requests, Actions et Metadata en « Read-only »",
+    available: true,
+  },
 
   {
     id: "AUTRES",
@@ -134,6 +145,9 @@ export async function syncIntegration(integrationId: string, opts: { force?: boo
     else if (integ.provider === "WHATSAPP") {
       const r = await checkWhatsApp(creds as unknown as WhatsAppCreds);
       await prisma.integration.update({ where: { id: integ.id }, data: { label: r.display_phone_number ?? integ.label, meta: JSON.stringify(r) } });
+      result = { accounts: 0, transactions: 0, invoices: 0 };
+    } else if (integ.provider === "GITHUB") {
+      await checkGitHub();
       result = { accounts: 0, transactions: 0, invoices: 0 };
     } else if (integ.provider === "GOOGLE") {
       await googleClient(integ.id).then((g) => g.call("https://www.googleapis.com/oauth2/v3/userinfo"));

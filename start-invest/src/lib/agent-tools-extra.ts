@@ -3,6 +3,7 @@ import { lookup } from "dns/promises";
 import net from "net";
 import { prisma } from "@/lib/prisma";
 import type { AgentDef } from "@/lib/agents";
+import { repoFile, repoStatus } from "@/lib/connectors/github";
 import { driveCreateFolder, driveList, driveMove, gmailOrganize, gmailRead, gmailSearch } from "@/lib/connectors/google";
 
 // Outils supplémentaires du board : présence en ligne (sites, réseaux sociaux, référencement),
@@ -12,6 +13,7 @@ import { driveCreateFolder, driveList, driveMove, gmailOrganize, gmailRead, gmai
 
 const GROUP = ["ceo", "cfo", "cmo", "seo-geo", "contenu-reseaux", "publicite"];
 const isSecretariat = (a: AgentDef) => a.slug.startsWith("secretariat-");
+const canSeeProjects = (a: AgentDef) => a.slug === "directeur-projets" || a.slug.startsWith("projet-") || ["ceo", "cto", "cmo", "avocat-du-diable", "moneymaker"].includes(a.slug);
 const canReadMail = (a: AgentDef) => isSecretariat(a) || a.slug.startsWith("dg-") || a.slug.startsWith("daf-") || a.slug === "ceo";
 
 const societe = { type: "string", description: "Nom de la société (par défaut : la tienne)." } as const;
@@ -58,6 +60,20 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
       }
     );
   }
+  if (canSeeProjects(agent)) {
+    tools.push(
+      {
+        name: "lister_projets",
+        description: "Projets du fondateur (hors sociétés du groupe) : nom, description, objectif, statut, site, dépôt GitHub, consignes.",
+        input_schema: { type: "object", properties: {}, additionalProperties: false },
+      },
+      {
+        name: "lire_projet",
+        description: "État réel d'un projet sur GitHub (lecture seule) : README, 15 derniers changements, tâches et demandes de fusion ouvertes, derniers builds, liste des documents. Avec « fichier » : lit ce document du dépôt (ex. docs/13-launch-timeline.md).",
+        input_schema: { type: "object", properties: { projet: { type: "string" }, fichier: { type: "string" } }, required: ["projet"], additionalProperties: false },
+      }
+    );
+  }
   if (agent.slug === "avocat-du-diable") {
     tools.push({
       name: "corriger_agent",
@@ -92,7 +108,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   return tools;
 }
 
-export const EXTRA_TOOL_NAMES = new Set(["corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
+export const EXTRA_TOOL_NAMES = new Set(["lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
 
 async function scopeCompany(agent: AgentDef, name?: string) {
   const all = await prisma.company.findMany({ where: { active: true } });
@@ -210,6 +226,26 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
   const soc = input.societe as string | undefined;
   const boite = input.boite as string | undefined;
   switch (name) {
+    case "lister_projets": {
+      if (!canSeeProjects(agent)) throw new Error("Réservé à la direction des projets.");
+      const { ensureDefaultProjects } = await import("@/lib/projects");
+      await ensureDefaultProjects();
+      return (await prisma.project.findMany({ where: { active: true }, orderBy: { name: "asc" } })).map((p) => ({ nom: p.name, description: p.description, objectif: p.goal, statut: p.status, site: p.website, depot: p.repo, consignes: p.notes }));
+    }
+    case "lire_projet": {
+      if (!canSeeProjects(agent)) throw new Error("Réservé à la direction des projets.");
+      const q = String(input.projet ?? "").toLowerCase();
+      const list = await prisma.project.findMany({ where: { active: true } });
+      const p = list.find((x) => x.name.toLowerCase() === q) ?? (list.filter((x) => x.name.toLowerCase().includes(q)).length === 1 ? list.find((x) => x.name.toLowerCase().includes(q)) : undefined);
+      if (!p) throw new Error(`Projet « ${input.projet} » introuvable. Projets : ${list.map((x) => x.name).join(", ")}`);
+      // Un chef de projet ne lit que SON projet.
+      if (agent.slug.startsWith("projet-")) {
+        const { projectAgentSlug } = await import("@/lib/agents");
+        if (projectAgentSlug(p) !== agent.slug) throw new Error("Tu ne suis que ton propre projet.");
+      }
+      if (!p.repo) throw new Error(`Pas de dépôt GitHub renseigné pour ${p.name} (page Projets).`);
+      return input.fichier ? repoFile(p.repo, String(input.fichier)) : repoStatus(p.repo);
+    }
     case "corriger_agent": {
       if (agent.slug !== "avocat-du-diable") throw new Error("Réservé à l'avocat du diable.");
       const { loadAgents } = await import("@/lib/agents");

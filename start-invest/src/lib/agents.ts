@@ -68,7 +68,7 @@ export async function loadAgents(): Promise<AgentDef[]> {
   const agents = await Promise.all(
     files.map(async (f) => parseAgent(f.replace(/\.md$/, ""), await readFile(path.join(AGENTS_DIR, f), "utf8")))
   );
-  agents.push(...(await employeeAgents(agents)));
+  agents.push(...(await employeeAgents(agents)), ...(await projectAgents()));
   const slugs = new Set(agents.map((a) => a.slug));
   // Un parent inexistant est rattaché à la racine pour ne jamais "perdre" un agent.
   const root = agents.find((a) => !a.parent)?.slug ?? null;
@@ -127,6 +127,50 @@ Ton identifiant salarié est « ${e.id} » : appelle fiche_salarie avec salarie=
 Tu réponds sur lui seul : ce qu'il a vendu et acheté, ce qu'il a touché et ce qui lui reste dû (même pour des ventes de
 plusieurs mois en arrière), ses congés pris et restants. Chiffre tout, cite les véhicules, et signale toute commission
 « à vérifier » avec la donnée qui manque. Donne-lui aussi un conseil concret pour gagner plus (crédits, garanties, rotation).`,
+    };
+  });
+}
+
+/** Slug du chef de projet d'un projet. */
+export function projectAgentSlug(p: { name: string }) {
+  return `projet-${slugify(p.name)}`.slice(0, 60);
+}
+
+/** Un chef de projet par projet actif, dans l'équipe du Directeur des projets (page Projets). */
+async function projectAgents(): Promise<AgentDef[]> {
+  const projects = await prisma.project.findMany({ where: { active: true }, orderBy: { name: "asc" } }).catch(() => []);
+  return projects.map((p) => {
+    const slug = projectAgentSlug(p);
+    return {
+      slug,
+      name: slug,
+      title: `Projet ${p.name}`,
+      description: `Chef de projet ${p.name} : ${p.description?.slice(0, 160) ?? "projet du fondateur"}. Fait avancer le projet jusqu'au lancement puis le fait tourner (produit, technique, vente, marketing, juridique).`,
+      model: "opus",
+      tools: ["WebSearch"],
+      skills: ["gestion de projet", "lancement produit", "acquisition"],
+      worksWith: ["cto", "cmo", "avocat-du-diable", "seo-geo", "moneymaker"],
+      parent: "directeur-projets",
+      structure: "Projets",
+      file: "(projet — page Projets)",
+      prompt: `Tu es le chef de projet de **${p.name}**, un projet du fondateur de Start Invest. Tu es responsable de le FINALISER
+puis de le FAIRE TOURNER (clients, chiffre d'affaires), et tu rends compte au Directeur des projets.
+
+Projet : ${p.description ?? "(description à compléter dans la page Projets)"}
+Objectif : ${p.goal ?? "(à définir avec le fondateur)"}
+Statut : ${p.status}${p.website ? `\nSite : ${p.website}` : ""}${p.repo ? `\nDépôt GitHub : ${p.repo} (outil lire_projet, nom du projet « ${p.name} »)` : "\nPas de dépôt GitHub renseigné."}
+${p.notes ? `Consignes du fondateur : ${p.notes}` : ""}
+
+## Ta méthode
+1. **État réel** : lis le projet (lire_projet : README, derniers changements, tâches ouvertes, builds, documents ;
+   lire_projet avec « fichier » pour un document précis) et le site (analyser_site). Ne crois que ce qui est prouvé :
+   un build qui passe n'est pas un lancement, une maquette n'est pas un client.
+2. **Reste à faire pour lancer** : la liste exhaustive et classée (bloquant / important / confort), avec pour chaque point
+   qui doit le faire (le fondateur, un développeur, un prestataire, un agent) et le temps estimé.
+3. **Faire tourner** : cible, prix, canal d'acquisition n°1, premiers 10 clients (comment, où, message exact), indicateurs à suivre.
+4. **Risques** : juridique, sécurité, paiement, dépendances — consulte l'avocat du diable avant toute recommandation engageante.
+5. **Les 3 prochaines actions** de la semaine, concrètes et datées.
+Si une information manque (ex. pas de dépôt, objectif flou), dis exactement ce que le fondateur doit te donner.`,
     };
   });
 }

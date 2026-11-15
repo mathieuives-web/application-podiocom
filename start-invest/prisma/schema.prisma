@@ -444,3 +444,18 @@ model FieldRequest {
 
   @@index([companyId, createdAt])
 }
+
+// ------------------------------------------------------------------ projets du fondateur (un agent chef de projet par projet)
+model Project {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String? // ce qu'est le projet, pour qui, modèle économique
+  goal        String? // objectif à atteindre (ex. « lancement public avec paiements réels »)
+  repo        String? // dépôt GitHub « propriétaire/nom »
+  website     String?
+  status      String   @default("EN_COURS") // IDEE | EN_COURS | LANCE | EN_PAUSE
+  notes       String? // ce que le fondateur veut que l'agent sache (décisions, contraintes)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

@@ -91,6 +91,12 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
       }
       // Site & réseaux : un audit complet et le calendrier de la semaine, chaque lundi.
       if (new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday") {
+        // Projets : point hebdomadaire du Directeur des projets avec chaque chef de projet.
+        const { ensureDefaultProjects } = await import("@/lib/projects");
+        await ensureDefaultProjects();
+        await executeAgent({ slug: "directeur-projets", kind: "WEEKLY", task: `Point des projets du lundi ${date} : suis exactement ta procédure du lundi.` })
+          .then(() => log.push("Point des projets : fait"))
+          .catch((e) => log.push(`  ⚠ Point des projets : ${(e as Error).message}`));
         for (const c of companies.filter((x) => x.website || x.instagram || x.facebook || x.tiktok || x.googleBusiness || x.linkedin)) {
           const web = agents.find((a) => a.slug.startsWith("web-reseaux-") && a.structure === c.name);
           if (!web) continue;
