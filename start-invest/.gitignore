@@ -44,3 +44,7 @@ next-env.d.ts
 /prisma/dev.db
 /prisma/dev.db-journal
 !.env.example
+
+# base de données et documents chiffrés
+/data
+/prisma/*.db

@@ -20,6 +20,33 @@ model User {
   role         Role     @default(MEMBER)
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
+  // Double authentification (code à 6 chiffres d'une application type Google Authenticator)
+  totpSecret   String? // chiffré
+  totpEnabled  Boolean  @default(false)
+}
+
+// Tentatives de connexion (blocage après 5 échecs en 15 minutes)
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  ip        String?
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+}
+
+// Journal des actions sensibles (connexions, accès bancaires, documents, comptes...)
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  userEmail String?
+  action    String
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +67,8 @@ model Company {
   transactions BankTransaction[]
   invoices     Invoice[]
   integrations Integration[]
+  documents    Document[]
+  statements   FinancialStatement[]
 }
 
 model BankAccount {
@@ -183,4 +212,55 @@ model DailyControl {
   log        String?
   startedAt  DateTime  @default(now())
   finishedAt DateTime?
+}
+
+// Archives : bilans, relevés bancaires et autres documents, stockés chiffrés sur le disque
+model Document {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type         String // BILAN | RELEVE | FACTURES | AUTRE
+  year         Int?
+  fileName     String
+  mime         String
+  size         Int
+  sha256       String
+  storagePath  String
+  status       String   @default("PENDING") // PENDING | PROCESSING | DONE | ERROR
+  summary      String? // ce que l'IA a extrait / importé
+  error        String?
+  accountId    String? // pour un relevé : compte bancaire où importer les opérations
+  uploadedBy   String?
+  createdAt    DateTime @default(now())
+
+  statements FinancialStatement[]
+
+  @@unique([companyId, sha256])
+}
+
+// Chiffres clés d'un bilan / compte de résultat (un par société et par exercice)
+model FinancialStatement {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  year        Int
+  documentId  String?
+  document    Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  revenue     Float? // chiffre d'affaires
+  grossMargin Float?
+  payroll     Float? // salaires et charges sociales
+  ebitda      Float? // EBE
+  operatingIncome Float? // résultat d'exploitation
+  netIncome   Float? // résultat net
+  equity      Float? // capitaux propres
+  totalAssets Float?
+  cash        Float? // disponibilités
+  debt        Float? // emprunts et dettes financières
+  receivables Float? // créances clients
+  payables    Float? // dettes fournisseurs
+  stock       Float?
+  notes       String? // observations de l'IA (points d'attention)
+  createdAt   DateTime  @default(now())
+
+  @@unique([companyId, year])
 }

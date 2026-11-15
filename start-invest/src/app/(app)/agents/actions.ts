@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { getAgent } from "@/lib/agents";
 import { executeAgent, agentsConfigured } from "@/lib/agent-runtime";
+import { audit } from "@/lib/audit";
 
 export async function convoquerAgent(slug: string, task: string): Promise<{ ok: boolean; error?: string; runId?: string }> {
   const user = await requireAdmin();
@@ -14,6 +15,7 @@ export async function convoquerAgent(slug: string, task: string): Promise<{ ok: 
   if (!task.trim()) return { ok: false, error: "Décrivez la demande." };
   if (!agentsConfigured()) return { ok: false, error: "Ajoutez ANTHROPIC_API_KEY dans les variables d'environnement du serveur." };
 
+  await audit(user, "agent_convoque", `${slug} : ${task.slice(0, 200)}`);
   const run = await prisma.agentRun.create({ data: { agent: slug, task: task.trim(), userId: user.id } });
   // L'agent travaille en arrière-plan ; la page se rafraîchit tant qu'il est « au travail ».
   after(async () => {

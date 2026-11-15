@@ -3,6 +3,12 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { authConfig } from "@/auth.config";
+import { decryptJson } from "@/lib/crypto";
+import { verifyTotp } from "@/lib/totp";
+import { audit } from "@/lib/audit";
+
+const WINDOW = 15 * 60 * 1000;
+const MAX_FAILURES = 5;
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -11,24 +17,43 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Mot de passe", type: "password" },
+        code: { label: "Code de sécurité", type: "text" },
       },
-      authorize: async (credentials) => {
-        const email = credentials?.email as string | undefined;
-        const password = credentials?.password as string | undefined;
+      authorize: async (credentials, request) => {
+        const email = String(credentials?.email ?? "").trim().toLowerCase();
+        const password = String(credentials?.password ?? "");
+        const code = String(credentials?.code ?? "");
         if (!email || !password) return null;
+        const ip = request?.headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+
+        // Blocage : 5 échecs en 15 minutes pour cet email ou cette adresse IP.
+        const since = new Date(Date.now() - WINDOW);
+        const failures = await prisma.loginAttempt.count({
+          where: { success: false, createdAt: { gte: since }, OR: [{ email }, ...(ip ? [{ ip }] : [])] },
+        });
+        if (failures >= MAX_FAILURES) {
+          await audit({ email }, "connexion_bloquee", `IP ${ip ?? "?"}`);
+          return null;
+        }
+
+        const fail = async (why: string) => {
+          await prisma.loginAttempt.create({ data: { email, ip, success: false } });
+          await audit({ email }, "connexion_echec", `${why} — IP ${ip ?? "?"}`);
+          return null;
+        };
 
         const user = await prisma.user.findUnique({ where: { email } });
-        if (!user || !user.active) return null;
+        // Comparaison faite même si le compte n'existe pas, pour ne pas révéler les emails valides.
+        const valid = await bcrypt.compare(password, user?.passwordHash ?? "$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinv");
+        if (!user || !user.active || !valid) return fail("identifiants");
+        if (user.totpEnabled && user.totpSecret) {
+          const { secret } = decryptJson<{ secret: string }>(user.totpSecret);
+          if (!verifyTotp(secret, code)) return fail("code de sécurité");
+        }
 
-        const valid = await bcrypt.compare(password, user.passwordHash);
-        if (!valid) return null;
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
+        await prisma.loginAttempt.create({ data: { email, ip, success: true } });
+        await audit({ id: user.id, email }, "connexion", `IP ${ip ?? "?"}`);
+        return { id: user.id, email: user.email, name: user.name, role: user.role };
       },
     }),
   ],

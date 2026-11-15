@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { auth } from "@/auth";
+import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { encryptJson } from "@/lib/crypto";
 import { shineExchangeCode } from "@/lib/connectors/shine";
@@ -11,7 +12,11 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const back = (msg: string) => NextResponse.redirect(new URL("/connexions?msg=" + encodeURIComponent(msg), req.url));
   const session = await auth();
-  if ((session?.user as { role?: string } | undefined)?.role !== "ADMIN") return NextResponse.redirect(new URL("/login", req.url));
+  const uid = (session?.user as { id?: string } | undefined)?.id;
+  const me = uid ? await prisma.user.findUnique({ where: { id: uid } }) : null;
+  if (!me || !me.active || me.role !== "ADMIN" || (!me.totpEnabled && process.env.REQUIRE_2FA !== "off")) {
+    return NextResponse.redirect(new URL("/acces", req.url));
+  }
 
   const jar = await cookies();
   const saved = jar.get("shine_oauth")?.value;
@@ -35,6 +40,7 @@ export async function GET(req: Request) {
     const integ = old
       ? await prisma.integration.update({ where: { id: old.id }, data: { credentials: encryptJson(creds), status: "PENDING", lastError: null } })
       : await prisma.integration.create({ data: { companyId: expected.companyId, provider: "SHINE", credentials: encryptJson(creds) } });
+    await audit(me, "shine_connecte", `société ${expected.companyId}`);
     const r = await syncIntegration(integ.id);
     msg = `Shine connecté : ${r.accounts} compte(s), ${r.transactions} opération(s), ${r.invoices} facture(s) synchronisé(s).`;
   } catch (e) {

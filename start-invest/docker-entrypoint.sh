@@ -2,7 +2,8 @@
 set -e
 
 # Un seul volume persistant (/app/data) contient la base de données.
-mkdir -p /app/data
+mkdir -p /app/data/documents
+chmod 700 /app/data /app/data/documents 2>/dev/null || true
 
 # Au premier démarrage, on copie la base pré-initialisée (schéma + sociétés + compte fondateur).
 if [ ! -f /app/data/dev.db ]; then

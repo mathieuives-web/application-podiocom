@@ -6,9 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { encryptJson } from "@/lib/crypto";
 import { PROVIDERS, syncIntegration } from "@/lib/connectors";
+import { audit } from "@/lib/audit";
 
 export async function addIntegration(formData: FormData) {
-  await requireAdmin();
+  const me = await requireAdmin();
   const provider = PROVIDERS.find((p) => p.id === formData.get("provider") && p.available);
   if (!provider) throw new Error("Connecteur indisponible.");
   const creds: Record<string, string> = {};
@@ -25,6 +26,7 @@ export async function addIntegration(formData: FormData) {
       credentials: encryptJson(creds),
     },
   });
+  await audit(me, "connexion_outil_ajoutee", `${provider.name} — société ${integ.companyId}`);
   let msg: string;
   try {
     const r = await syncIntegration(integ.id);
@@ -38,7 +40,8 @@ export async function addIntegration(formData: FormData) {
 }
 
 export async function syncNow(integrationId: string) {
-  await requireAdmin();
+  const me = await requireAdmin();
+  await audit(me, "synchronisation_manuelle", integrationId);
   let msg: string;
   try {
     const r = await syncIntegration(integrationId);
@@ -52,7 +55,8 @@ export async function syncNow(integrationId: string) {
 }
 
 export async function removeIntegration(integrationId: string) {
-  await requireAdmin();
+  const me = await requireAdmin();
+  await audit(me, "connexion_outil_supprimee", integrationId);
   // Les comptes et opérations déjà importés sont conservés (historique).
   await prisma.integration.delete({ where: { id: integrationId } });
   revalidatePath("/connexions");

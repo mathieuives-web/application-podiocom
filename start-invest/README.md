@@ -31,6 +31,36 @@ recherche personnalisée, carte grise, communication), **Auto Rac Ives** (atelie
 
 Les agents n'ont accès aux données qu'en **lecture seule** : ils proposent, ils n'exécutent aucun paiement.
 
+## Sécurité
+
+- **Double authentification obligatoire** (code à 6 chiffres d'une application Google / Microsoft
+  Authenticator ou Authy) pour toute action sensible : banques, documents, accès, agents, relances.
+- **Blocage** après 5 échecs de connexion en 15 minutes (par email et par adresse IP).
+- Sessions de **8 heures** maximum ; un compte désactivé perd l'accès immédiatement.
+- Mots de passe de 12 caractères minimum, hachés (bcrypt).
+- **Chiffrement** AES-256-GCM des accès bancaires / logiciels et de **tous les documents** archivés
+  (clé dérivée de `AUTH_SECRET`, jamais stockée).
+- **Journal de sécurité** (page Accès) : connexions, échecs, accès bancaires, dépôts et téléchargements
+  de documents, convocations des agents...
+- En-têtes de sécurité (HSTS, CSP, anti-iframe), conteneur Docker sans privilèges root.
+- Accès bancaires et agents en **lecture seule** : aucun paiement ne peut être déclenché.
+
+À faire en production : HTTPS obligatoire, `AUTH_SECRET` de 32 caractères ou plus, volume `/app/data`
+sauvegardé chaque jour, limite de dépense sur la clé Claude, et dépôt GitHub **privé**.
+
+## Mise en route
+
+La page **Mise en route** vérifie tout ce qui doit être branché (sécurité, clés, banque, factures,
+bilans, relevés, relances) et affiche, société par société, ce qui manque encore.
+
+## Archives (historique pour les agents)
+
+Déposez dans **Archives** les bilans (PDF) et les relevés bancaires (PDF, CSV ou Excel) de chaque
+société, ainsi que les exports de factures (CSV / Excel) de n'importe quel logiciel. L'IA lit les PDF :
+chiffres clés de chaque exercice pour les bilans, opérations pour les relevés (importées sans doublon
+avec la synchronisation Shine). Les directeurs financiers et le CFO s'en servent pour comparer chaque
+mois à l'historique.
+
 ## Lancer en local
 
 Prérequis : Node.js 20+.

@@ -11,6 +11,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       await signIn("credentials", {
         email: formData.get("email"),
         password: formData.get("password"),
+        code: formData.get("code"),
         redirectTo: "/",
       });
     } catch (error) {
@@ -37,7 +38,16 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <label className="label" htmlFor="password">Mot de passe</label>
             <input className="input" id="password" name="password" type="password" required />
           </div>
-          {params?.error && <p className="text-sm text-red-600">Identifiants incorrects. Réessayez.</p>}
+          <div>
+            <label className="label" htmlFor="code">Code de sécurité (application d&apos;authentification)</label>
+            <input className="input tracking-widest" id="code" name="code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456" />
+            <p className="text-xs text-slate-400 mt-1">Laissez vide tant que la double authentification n&apos;est pas activée.</p>
+          </div>
+          {params?.error && (
+            <p className="text-sm text-red-600">
+              Connexion refusée : identifiants ou code incorrects. Après 5 essais, l&apos;accès est bloqué 15 minutes.
+            </p>
+          )}
           <button type="submit" className="btn-primary w-full" style={{ background: "#7f1d1d" }}>Se connecter</button>
         </form>
       </div>

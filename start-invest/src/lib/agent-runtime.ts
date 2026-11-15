@@ -98,6 +98,17 @@ const DATA_TOOLS: Anthropic.Beta.BetaTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "lire_bilans",
+    description:
+      "Historique financier issu des bilans déposés dans les Archives : par société et par exercice, CA, marge, salaires, EBE, résultat, capitaux propres, trésorerie, dettes, créances, stocks, et les points d'attention relevés. À utiliser pour comparer la situation actuelle au passé.",
+    input_schema: { type: "object", properties: { societe: { type: "string" } }, additionalProperties: false },
+  },
+  {
+    name: "lister_documents",
+    description: "Documents archivés d'une société (bilans, relevés, exports de factures) avec ce qui en a été extrait. Permet de savoir quel historique est disponible.",
+    input_schema: { type: "object", properties: { societe: { type: "string" } }, additionalProperties: false },
+  },
 ];
 
 async function runDataTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -161,6 +172,42 @@ async function runDataTool(name: string, input: Record<string, unknown>): Promis
         .filter((i) => statut === "TOUTES" || i.statut === statut)
         .slice(0, Math.min(Number(input.limite) || 100, 500));
     }
+    case "lire_bilans": {
+      const companyId = await resolveCompany(input.societe as string | undefined);
+      const rows = await prisma.financialStatement.findMany({
+        where: companyId ? { companyId } : {},
+        include: { company: { select: { name: true } } },
+        orderBy: [{ companyId: "asc" }, { year: "desc" }],
+      });
+      return rows.map((r) => ({
+        societe: r.company.name,
+        exercice: r.year,
+        chiffre_affaires: r.revenue,
+        marge_brute: r.grossMargin,
+        salaires_charges: r.payroll,
+        ebe: r.ebitda,
+        resultat_exploitation: r.operatingIncome,
+        resultat_net: r.netIncome,
+        capitaux_propres: r.equity,
+        total_bilan: r.totalAssets,
+        tresorerie: r.cash,
+        dettes_financieres: r.debt,
+        creances_clients: r.receivables,
+        dettes_fournisseurs: r.payables,
+        stocks: r.stock,
+        points_attention: r.notes,
+      }));
+    }
+    case "lister_documents": {
+      const companyId = await resolveCompany(input.societe as string | undefined);
+      const docs = await prisma.document.findMany({
+        where: companyId ? { companyId } : {},
+        include: { company: { select: { name: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      });
+      return docs.map((d) => ({ societe: d.company.name, type: d.type, exercice: d.year, fichier: d.fileName, etat: d.status, extrait: d.summary ?? d.error }));
+    }
     case "lister_relances": {
       const companyId = await resolveCompany(input.societe as string | undefined);
       const rems = await prisma.reminder.findMany({
@@ -200,7 +247,7 @@ function systemPrompt(agent: AgentDef, all: AgentDef[]) {
 ---
 Contexte du board d'agents :
 - Tu es « ${agent.title} » (${agent.slug}), structure : ${agent.structure}.${parent ? ` Tu rends compte à ${parent.title}.` : " Tu rends compte directement au fondateur."}
-- Les outils lister_societes, lire_finances, lister_transactions, lister_factures et lister_relances donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
+- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans et lister_documents donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
 ${reachable ? `- Tu peux déléguer une sous-question précise avec consulter_agent à :\n${reachable}\n- Ne délègue que ce qui apporte vraiment quelque chose : fais toi-même ce qui est simple.` : "- Tu n'as pas d'équipe à consulter : fais le travail toi-même."}
 - Réponds en français, de façon concise et actionnable, au format Markdown. Termine par « À faire par le fondateur » si une action humaine est nécessaire.`;
 }

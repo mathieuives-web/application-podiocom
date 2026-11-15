@@ -35,7 +35,9 @@ Chaque matin, tu reçois le rapport de chaque DAF. Tu dois :
 1. Donner le **verdict du groupe** : le groupe gagne-t-il de l'argent ? Quelle société en gagne, laquelle en perd.
 2. **Contrôler les DAF** : vérifier leurs chiffres avec tes outils, repérer un rapport incomplet,
    faux ou trop optimiste, et dire clairement ce qu'un DAF a raté.
-3. Faire remonter au fondateur uniquement les 3 sujets qui demandent une décision.
+3. Situer chaque société par rapport à son historique (`lire_bilans`) : progresse-t-elle ou recule-t-elle
+   par rapport aux exercices précédents ?
+4. Faire remonter au fondateur uniquement les 3 sujets qui demandent une décision.
 
 ## Ce que tu rends
 1. Le chiffre clé : trésorerie disponible aujourd'hui et dans 30 / 90 jours, par société et consolidée.

@@ -1,12 +1,12 @@
 "use server";
 
-import { createHash } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
-import { autoReconcile, categorize } from "@/lib/finance";
+import { autoReconcile } from "@/lib/finance";
 import { parseStatement } from "@/lib/statement-import";
+import { audit } from "@/lib/audit";
 
 function str(v: FormDataEntryValue | null) {
   const s = (v ?? "").toString().trim();
@@ -46,7 +46,7 @@ export async function createBankAccount(formData: FormData) {
 }
 
 export async function importStatement(formData: FormData) {
-  await requireAdmin();
+  const me = await requireAdmin();
   const accountId = str(formData.get("accountId"))!;
   const file = formData.get("file") as File | null;
   const account = await prisma.bankAccount.findUniqueOrThrow({ where: { id: accountId } });
@@ -54,36 +54,16 @@ export async function importStatement(formData: FormData) {
   try {
     if (!file || file.size === 0) throw new Error("Choisissez un fichier.");
     const lines = await parseStatement(file);
-    const seen = new Map<string, number>();
-    let created = 0;
-    for (const l of lines) {
-      // Identifiant stable : même ligne réimportée = ignorée (pas de doublon).
-      const base = `${l.date.toISOString().slice(0, 10)}|${l.label}|${l.amount.toFixed(2)}`;
-      const n = (seen.get(base) ?? 0) + 1;
-      seen.set(base, n);
-      const externalId = "csv-" + createHash("sha1").update(`${base}|${n}`).digest("hex").slice(0, 20);
-      const exists = await prisma.bankTransaction.findUnique({ where: { accountId_externalId: { accountId, externalId } } });
-      if (exists) continue;
-      await prisma.bankTransaction.create({
-        data: {
-          accountId,
-          companyId: account.companyId,
-          externalId,
-          date: l.date,
-          label: l.label,
-          amount: l.amount,
-          category: categorize(l.label, l.amount),
-        },
-      });
-      created++;
-    }
+    const { importLines } = await import("@/lib/documents");
+    const { created, skipped } = await importLines(accountId, lines);
     const balance = num(formData.get("balance"));
     await prisma.bankAccount.update({
       where: { id: accountId },
       data: { lastSyncAt: new Date(), ...(balance !== null ? { balance } : {}) },
     });
     const matched = await autoReconcile(account.companyId);
-    message = `${created} opération(s) importée(s) sur ${lines.length} lue(s), ${matched} facture(s) rapprochée(s).`;
+    await audit(me, "releve_importe", `${file?.name} — ${created} opération(s)`);
+    message = `${created} opération(s) importée(s) sur ${lines.length} lue(s)${skipped ? ` (${skipped} déjà fournies par la synchro bancaire)` : ""}, ${matched} facture(s) rapprochée(s).`;
   } catch (e) {
     message = `Import impossible : ${(e as Error).message}`;
   }
@@ -129,7 +109,8 @@ export async function reconcileNow() {
 // ------------------------------------------------ contrôle quotidien & relances
 
 export async function runControlNow() {
-  await requireAdmin();
+  const me = await requireAdmin();
+  await audit(me, "controle_quotidien_lance");
   const { runDailyControl } = await import("@/lib/daily-control");
   const { after } = await import("next/server");
   after(() => runDailyControl({ force: true }).then(() => undefined));
@@ -137,8 +118,9 @@ export async function runControlNow() {
 }
 
 export async function toggleAutoReminders(companyId: string) {
-  await requireAdmin();
+  const me = await requireAdmin();
   const c = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+  await audit(me, c.autoReminders ? "relances_desactivees" : "relances_activees", c.name);
   await prisma.company.update({ where: { id: companyId }, data: { autoReminders: !c.autoReminders } });
   revalidatePath("/finances");
 }
@@ -153,7 +135,8 @@ export async function setInvoiceEmail(invoiceId: string, formData: FormData) {
 }
 
 export async function sendReminderNow(reminderId: string) {
-  await requireAdmin();
+  const me = await requireAdmin();
+  await audit(me, "relance_envoyee_manuellement", reminderId);
   const { sendReminder } = await import("@/lib/reminders");
   const r = await sendReminder(reminderId);
   revalidatePath("/finances");

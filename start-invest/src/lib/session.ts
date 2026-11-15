@@ -1,18 +1,29 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 
-export type SessionUser = { id: string; name?: string | null; email?: string | null; role: string };
+export type SessionUser = { id: string; name?: string | null; email?: string | null; role: string; totpEnabled: boolean };
 
+/** Utilisateur connecté, relu en base à chaque requête (un compte désactivé perd l'accès immédiatement). */
 export async function requireUser(): Promise<SessionUser> {
   const session = await auth();
-  if (!session?.user) redirect("/login");
-  return session.user as unknown as SessionUser;
+  const id = (session?.user as { id?: string } | undefined)?.id;
+  if (!id) redirect("/login");
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user || !user.active) redirect("/login");
+  return { id: user.id, name: user.name, email: user.email, role: user.role, totpEnabled: user.totpEnabled };
 }
 
-/** Actions sensibles (connexions bancaires, accès, convocation des agents) : fondateur uniquement. */
+/**
+ * Actions sensibles (banques, documents, accès, agents) : fondateur uniquement, et double
+ * authentification obligatoire (désactivable uniquement avec REQUIRE_2FA=off, déconseillé).
+ */
 export async function requireAdmin(): Promise<SessionUser> {
   const user = await requireUser();
   if (user.role !== "ADMIN") redirect("/agents");
+  if (!user.totpEnabled && process.env.REQUIRE_2FA !== "off") {
+    redirect("/acces?msg=" + encodeURIComponent("Activez la double authentification pour accéder à cette fonction."));
+  }
   return user;
 }
 

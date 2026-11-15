@@ -37,9 +37,29 @@ function parseDate(v: unknown): Date | null {
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 
 export async function parseStatement(file: File): Promise<ParsedLine[]> {
-  const buf = Buffer.from(await file.arrayBuffer());
+  return parseStatementBuffer(Buffer.from(await file.arrayBuffer()), file.name, file.type);
+}
+
+/** Lit un tableur (CSV / XLS / XLSX) et renvoie ses lignes brutes, en-têtes compris. */
+export function readSheet(buf: Buffer, name: string, mime = ""): unknown[][] {
   let wb: XLSX.WorkBook;
-  if (/\.(csv|txt)$/i.test(file.name) || file.type === "text/csv") {
+  if (/\.(csv|txt)$/i.test(name) || mime === "text/csv") {
+    let text = buf.toString("utf8");
+    if (text.includes("\ufffd")) text = buf.toString("latin1");
+    const first = text.split(/\r?\n/).find((l) => l.trim()) ?? "";
+    const FS = (first.match(/;/g)?.length ?? 0) >= (first.match(/,/g)?.length ?? 0) ? ";" : first.includes("\t") ? "\t" : ",";
+    wb = XLSX.read(text, { type: "string", FS, raw: true });
+  } else {
+    wb = XLSX.read(buf, { type: "buffer", cellDates: true });
+  }
+  return XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: true });
+}
+
+export { parseAmount, parseDate };
+
+export function parseStatementBuffer(buf: Buffer, name: string, mime = ""): ParsedLine[] {
+  let wb: XLSX.WorkBook;
+  if (/\.(csv|txt)$/i.test(name) || mime === "text/csv") {
     let text = buf.toString("utf8");
     if (text.includes("�")) text = buf.toString("latin1");
     const first = text.split(/\r?\n/).find((l) => l.trim()) ?? "";

@@ -4,7 +4,7 @@ export const authConfig = {
   pages: {
     signIn: "/login",
   },
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt", maxAge: 8 * 60 * 60 }, // reconnexion obligatoire toutes les 8 heures
   callbacks: {
     authorized({ auth, request }) {
       const isLoggedIn = !!auth?.user;
