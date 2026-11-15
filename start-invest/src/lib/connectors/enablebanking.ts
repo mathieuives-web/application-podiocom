@@ -116,7 +116,7 @@ type Tx = {
 const normName = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").replace(/\b(SAS|SARL|EURL|SA|SCI|LE|LA|L)\b/g, " ").replace(/\s+/g, " ").trim();
 
 /** Société dont le nom correspond au nom du compte bancaire (ex. « L USINE » -> Le Bar L'Usine). */
-async function guessCompany(accountName: string | null | undefined) {
+export async function guessCompany(accountName: string | null | undefined) {
   if (!accountName) return null;
   const n = normName(accountName);
   if (!n) return null;

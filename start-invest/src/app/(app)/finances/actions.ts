@@ -176,3 +176,23 @@ export async function renameAccount(accountId: string, formData: FormData) {
   if (name) await prisma.bankAccount.update({ where: { id: accountId }, data: { name: name.slice(0, 80) } });
   revalidatePath("/finances");
 }
+
+/** Range tous les comptes bancaires synchronisés dans la société dont ils portent le nom (comptes exclus inchangés). */
+export async function autoAssignAccounts() {
+  const me = await requireAdmin();
+  const { guessCompany } = await import("@/lib/connectors/enablebanking");
+  const accounts = await prisma.bankAccount.findMany({ where: { excluded: false } });
+  let moved = 0;
+  for (const a of accounts) {
+    const target = await guessCompany(a.name);
+    if (!target || target === a.companyId) continue;
+    await prisma.$transaction([
+      prisma.bankAccount.update({ where: { id: a.id }, data: { companyId: target, autoAssigned: false } }),
+      prisma.bankTransaction.updateMany({ where: { accountId: a.id }, data: { companyId: target, invoiceId: null } }),
+    ]);
+    moved++;
+  }
+  await audit(me, "comptes_ranges_automatiquement", `${moved} compte(s) déplacé(s)`);
+  revalidatePath("/finances");
+  redirect(`/finances?msg=${encodeURIComponent(`${moved} compte(s) rangé(s) dans la société correspondant à leur nom. Vérifiez le tableau « Comptes bancaires ».`)}`);
+}

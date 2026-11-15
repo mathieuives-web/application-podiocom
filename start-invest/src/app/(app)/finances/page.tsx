@@ -4,8 +4,9 @@ import { requireUser } from "@/lib/session";
 import { financeSummary, monthlyFlows, invoiceStatus, eur } from "@/lib/finance";
 import {
   createCompany, createBankAccount, importStatement, createInvoice, markInvoicePaid, reconcileNow,
-  runControlNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow, moveAccount, renameAccount,
+  runControlNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow, moveAccount, renameAccount, autoAssignAccounts,
 } from "./actions";
+import AccountCompanySelect from "./AccountCompanySelect";
 import { isAdmin } from "@/lib/session";
 import { loadAgents } from "@/lib/agents";
 import { LEVELS, smtpConfigured } from "@/lib/reminders";
@@ -214,10 +215,17 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
       </section>
 
       <section className="card overflow-x-auto">
-        <h2 className="font-semibold mb-1">Comptes bancaires</h2>
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-1">
+          <h2 className="font-semibold">Comptes bancaires</h2>
+          {admin && (
+            <form action={autoAssignAccounts}>
+              <button className="btn-secondary text-xs">Ranger automatiquement selon le nom des comptes</button>
+            </form>
+          )}
+        </div>
         <p className="text-xs text-slate-500 mb-3">
           Une connexion bancaire peut ramener les comptes de plusieurs sociétés : rattachez chaque compte à la bonne société
-          (ses opérations suivent) et donnez-lui un nom parlant.
+          (le choix s&apos;enregistre tout seul, ses opérations suivent) et donnez-lui un nom parlant.
         </p>
         <table className="table-base">
           <thead><tr><th>Compte</th><th>Banque</th><th>IBAN</th><th className="text-right">Solde</th><th>Société</th></tr></thead>
@@ -237,13 +245,12 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
                 <td className="text-right font-medium whitespace-nowrap">{a.excluded ? <span className="text-xs text-slate-400">exclu</span> : eur(a.balance)}</td>
                 <td>
                   {admin ? (
-                    <form action={moveAccount.bind(null, a.id)} className="flex gap-1">
-                      <select name="companyId" defaultValue={a.excluded ? "__exclure__" : a.companyId} className="input py-1 text-xs">
-                        {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        <option value="__exclure__">Exclure (compte personnel)</option>
-                      </select>
-                      <button className="text-xs underline">ok</button>
-                    </form>
+                    <AccountCompanySelect
+                      accountId={a.id}
+                      value={a.excluded ? "__exclure__" : a.companyId}
+                      companies={companies.map((c) => ({ id: c.id, name: c.name }))}
+                      action={moveAccount}
+                    />
                   ) : a.company.name}
                 </td>
               </tr>
