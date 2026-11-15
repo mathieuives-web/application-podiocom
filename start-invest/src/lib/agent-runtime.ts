@@ -474,9 +474,11 @@ export async function executeAgent(opts: {
       where: { id: run.id },
       data: { status: "DONE", output: output || "(aucune réponse)", finishedAt: new Date() },
     });
+    console.log(`[agent] ${agent.slug} terminé (${opts.kind ?? "MANUAL"})`);
     return { runId: run.id, output };
   } catch (e) {
     const message = e instanceof Anthropic.APIError ? `Erreur API Claude (${e.status}) : ${e.message}` : (e as Error).message;
+    console.log(`[agent] ${agent.slug} ÉCHEC : ${message.slice(0, 400)}`);
     await prisma.agentRun.update({ where: { id: run.id }, data: { status: "ERROR", error: message, finishedAt: new Date() } });
     if (depth > 0) return { runId: run.id, output: `L'agent ${agent.title} n'a pas pu répondre : ${message}` };
     throw e;

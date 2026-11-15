@@ -3,6 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypt
 import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 import path from "path";
 import { z } from "zod";
+import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { prisma } from "@/lib/prisma";
 import { categorize, autoReconcile } from "@/lib/finance";
 import { parseStatementBuffer, readSheet, parseAmount, parseDate, type ParsedLine } from "@/lib/statement-import";
@@ -136,7 +137,8 @@ async function extract<T>(pdf: Buffer, schema: z.ZodType<T>, instruction: string
     max_tokens: 64000,
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
-    output_config: { format: { type: "json_schema", schema: z.toJSONSchema(schema) as Record<string, unknown> } },
+    // Le convertisseur du SDK adapte le schéma aux contraintes des réponses structurées (pas de min/max, pas de $schema...).
+    output_config: { format: betaZodOutputFormat(schema) },
     messages: [
       {
         role: "user",
@@ -316,7 +318,8 @@ export async function processDocument(id: string) {
     }
     await prisma.document.update({ where: { id }, data: { status: "DONE", summary } });
   } catch (e) {
-    const message = e instanceof Anthropic.APIError ? `Erreur API Claude (${e.status})` : (e as Error).message;
+    const message = e instanceof Anthropic.APIError ? `Erreur API Claude (${e.status}) : ${e.message}` : (e as Error).message;
+    console.log(`[document] ${doc.fileName} ÉCHEC : ${message.slice(0, 400)}`);
     await prisma.document.update({ where: { id }, data: { status: "ERROR", error: message.slice(0, 500) } });
   }
 }
