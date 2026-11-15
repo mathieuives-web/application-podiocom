@@ -19,7 +19,7 @@ const securityHeaders = [
       "connect-src 'self'",
       "frame-ancestors 'none'",
       "base-uri 'self'",
-      "form-action 'self' https://mcp.invoicing-accounting.shine.co",
+      "form-action 'self' https:",
       "object-src 'none'",
     ].join("; "),
   },
