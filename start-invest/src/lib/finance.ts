@@ -18,7 +18,8 @@ const RULES: [string, RegExp][] = [
   ["Impôts et taxes", /dgfip|imp[ôo]t|tva|cfe|tr[ée]sor public/i],
   ["Loyer", /loyer|bail/i],
   ["Logiciels / abonnements", /google|microsoft|apple\.com|adobe|notion|slack|ovh|orange|sfr|bouygues|free mobile|abonnement|stripe fee|qonto/i],
-  ["Frais bancaires", /frais|commission|cotisation carte|agios/i],
+  ["Intérêts / agios / financement de stock", /auxiga|agios|int[ée]r[êe]ts? d[ée]biteurs?|commission (de )?(plus fort d[ée]couvert|d.?immobilisation)|gage (sur )?stock|frais de gage/i],
+  ["Frais bancaires", /frais|commission|cotisation carte/i],
   ["Remboursement d'emprunt", /pr[êe]t|[ée]ch[ée]ance|leasing|lld|loa|cr[ée]dit bail/i],
 ];
 
@@ -62,6 +63,17 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
     c.transactions = c.transactions.filter((t) => t.date >= since);
     const current = c.bankAccounts.filter((a) => a.kind === "COURANT");
     const cash = current.reduce((s, a) => s + a.balance, 0);
+    // Découvert autorisé : marge de manœuvre réelle = solde + découvert ; utilisé = part négative du solde.
+    const overdraftLimit = current.reduce((s, a) => s + (a.overdraftLimit ?? 0), 0);
+    const overdraftUsed = current.reduce((s, a) => s + Math.max(0, -a.balance), 0);
+    const financing = current.filter((a) => a.overdraftLimit > 0 || a.financingNote).map((a) => ({
+      account: a.name,
+      solde: a.balance,
+      decouvertAutorise: a.overdraftLimit,
+      decouvertUtilise: Math.max(0, -a.balance),
+      tauxUtilisation: a.overdraftLimit > 0 ? Math.round((Math.max(0, -a.balance) / a.overdraftLimit) * 100) : null,
+      note: a.financingNote,
+    }));
     // Fonds de tiers (séquestre dépôt-vente) et emprunts : suivis à part, jamais comptés comme trésorerie.
     const escrow = c.bankAccounts.filter((a) => a.kind === "SEQUESTRE").reduce((s, a) => s + a.balance, 0);
     const loans = c.bankAccounts.filter((a) => a.kind === "PRET").reduce((s, a) => s + a.balance, 0);
@@ -85,6 +97,10 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
       color: c.color,
       accounts: c.bankAccounts.length,
       cash,
+      overdraftLimit,
+      overdraftUsed,
+      available: cash + overdraftLimit,
+      financing,
       escrow,
       loans,
       inflow,
@@ -109,13 +125,15 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
       escrow: s.escrow + r.escrow,
       loans: s.loans + r.loans,
       cash: s.cash + r.cash,
+      overdraftLimit: s.overdraftLimit + r.overdraftLimit,
+      available: s.available + r.available,
       inflow: s.inflow + r.inflow,
       outflow: s.outflow + r.outflow,
       receivables: s.receivables + r.receivables,
       receivablesLate: s.receivablesLate + r.receivablesLate,
       payables: s.payables + r.payables,
     }),
-    { escrow: 0, loans: 0, cash: 0, inflow: 0, outflow: 0, receivables: 0, receivablesLate: 0, payables: 0 }
+    { escrow: 0, loans: 0, cash: 0, overdraftLimit: 0, available: 0, inflow: 0, outflow: 0, receivables: 0, receivablesLate: 0, payables: 0 }
   );
 
   return { periodDays: days, companies: rows, total: { ...total, net: total.inflow - total.outflow } };

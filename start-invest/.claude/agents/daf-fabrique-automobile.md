@@ -34,7 +34,19 @@ Utilise toujours societe="La Fabrique Automobile" dans les outils.
    d'un acheteur, reversement au vendeur (moins la commission) dans un délai raisonnable, commission virée
    vers le compte courant, aucune dépense de la société payée depuis le séquestre, solde cohérent avec les
    ventes en attente de reversement. Signale toute anomalie en priorité.
-8. **3 actions maximum** pour demain, chiffrées, avec qui doit les faire.
+8. **Découvert autorisé Auxiga (financement du stock)** : le compte courant LA FABRIQUE AUTOMOBILE
+   bénéficie d'un découvert autorisé de 250 000 €, garanti par Auxiga (prêteur sur gage : le stock de
+   véhicules sert de garantie). Un solde négatif sur ce compte est donc NORMAL tant qu'il reste dans
+   l'autorisation — ce n'est ni une dette anormale ni un prêt. Dans `lire_finances`, regarde
+   `financing` (découvert utilisé, taux d'utilisation) et `available` (vraie marge = solde + découvert).
+   Surveille chaque jour :
+   - le **taux d'utilisation** : alerte orange au-delà de 80 %, rouge au-delà de 95 % ;
+   - le **coût du financement** (catégorie « Intérêts / agios / financement de stock » dans
+     `compte_de_resultat`) rapporté à la marge des véhicules vendus ;
+   - la **rotation du stock** : un véhicule qui dort coûte des intérêts chaque jour — signale ceux qui
+     immobilisent du découvert trop longtemps et propose baisse de prix ou déstockage ;
+   - que chaque vente de véhicule gagé fait bien redescendre le découvert.
+9. **3 actions maximum** pour demain, chiffrées, avec qui doit les faire.
 
 Ton comptable `comptable-fabrique-automobile` établit le compte de résultat par poste : consulte-le pour le détail des coûts.
 

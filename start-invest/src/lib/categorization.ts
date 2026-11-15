@@ -44,6 +44,7 @@ export const CATEGORIES_OUT = [
   "Honoraires (comptable, avocat...)",
   "Publicité / marketing",
   "Frais bancaires",
+  "Intérêts / agios / financement de stock",
   "Transport / déplacements",
   "Repas / réceptions",
   "Fournitures / petit équipement",

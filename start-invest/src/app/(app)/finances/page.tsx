@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/session";
 import { financeSummary, monthlyFlows, invoiceStatus, eur, escrowSummary } from "@/lib/finance";
 import {
   createCompany, createBankAccount, importStatement, createInvoice, markInvoicePaid, reconcileNow,
-  runControlNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow, moveAccount, renameAccount, autoAssignAccounts, setAccountKind,
+  runControlNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow, moveAccount, renameAccount, autoAssignAccounts, setAccountKind, setOverdraft,
 } from "./actions";
 import AccountCompanySelect from "./AccountCompanySelect";
 import AccountKindSelect from "./AccountKindSelect";
@@ -148,7 +148,7 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
       )}
 
       <section className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <Kpi label="Trésorerie" value={eur(t.cash)} strong />
+        <Kpi label="Trésorerie" value={eur(t.cash)} strong sub={t.overdraftLimit > 0 ? `disponible avec découverts : ${eur(t.available)}` : undefined} />
         <Kpi label="Entrées 30 j" value={eur(t.inflow)} tone="pos" />
         <Kpi label="Sorties 30 j" value={eur(t.outflow)} tone="neg" />
         <Kpi label="Résultat 30 j" value={eur(t.net)} tone={t.net >= 0 ? "pos" : "neg"} />
@@ -274,7 +274,7 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
           (le choix s&apos;enregistre tout seul, ses opérations suivent) et donnez-lui un nom parlant.
         </p>
         <table className="table-base">
-          <thead><tr><th>Compte</th><th>Banque</th><th>IBAN</th><th className="text-right">Solde</th><th>Type</th><th>Société</th></tr></thead>
+          <thead><tr><th>Compte</th><th>Banque</th><th>IBAN</th><th className="text-right">Solde</th><th>Type</th><th>Découvert autorisé</th><th>Société</th></tr></thead>
           <tbody>
             {accounts.filter((a) => !companyId || a.companyId === companyId).map((a) => (
               <tr key={a.id}>
@@ -295,6 +295,22 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
                   ) : (
                     <span className="text-xs">{a.kind === "SEQUESTRE" ? "Séquestre" : a.kind === "PRET" ? "Prêt" : "Courant"}</span>
                   )}
+                </td>
+                <td>
+                  {admin && !a.excluded && a.kind === "COURANT" ? (
+                    <form action={setOverdraft.bind(null, a.id)} className="flex flex-col gap-1">
+                      <div className="flex gap-1">
+                        <input name="limit" inputMode="decimal" defaultValue={a.overdraftLimit ? String(a.overdraftLimit) : ""} placeholder="0" className="input py-1 text-xs w-24" aria-label="Découvert autorisé en euros" />
+                        <button className="text-xs underline">ok</button>
+                      </div>
+                      <input name="note" defaultValue={a.financingNote ?? ""} placeholder="ex. garanti par Auxiga (gage sur stock)" className="input py-1 text-xs w-52" aria-label="Note sur le financement" />
+                      {a.overdraftLimit > 0 && (
+                        <span className={`text-xs ${a.balance < -0.8 * a.overdraftLimit ? "text-red-600 font-medium" : "text-slate-500"}`}>
+                          utilisé {eur(Math.max(0, -a.balance))} ({Math.round((Math.max(0, -a.balance) / a.overdraftLimit) * 100)} %) · reste {eur(a.overdraftLimit + Math.min(0, a.balance))}
+                        </span>
+                      )}
+                    </form>
+                  ) : <span className="text-xs text-slate-400">—</span>}
                 </td>
                 <td>
                   {admin ? (
@@ -504,7 +520,7 @@ function Kpi({ label, value, sub, tone, strong }: { label: string; value: string
     <div className={`card ${strong ? "bg-slate-900 text-white border-slate-900" : ""}`}>
       <p className={`text-xs ${strong ? "text-slate-300" : "text-slate-500"}`}>{label}</p>
       <p className={`text-lg font-bold ${tone === "pos" ? "text-emerald-700" : tone === "neg" ? "text-red-800" : ""}`}>{value}</p>
-      {sub && <p className="text-xs text-red-700">{sub}</p>}
+      {sub && <p className={`text-xs ${strong ? "text-slate-300" : "text-red-700"}`}>{sub}</p>}
     </div>
   );
 }

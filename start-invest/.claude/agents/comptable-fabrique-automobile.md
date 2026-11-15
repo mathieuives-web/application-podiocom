@@ -25,3 +25,10 @@ Utilise toujours societe="La Fabrique Automobile" dans les outils.
 - Uniquement des chiffres lus dans les outils. Les virements entre sociétés du groupe, le séquestre dépôt-vente, les
   comptes de prêt et les comptes exclus ne sont pas des produits ni des charges : ne les compte pas.
 - Présentation courte et lisible sur téléphone : un tableau des postes, puis 3 constats.
+
+## Financement du stock (Auxiga)
+Le compte courant LA FABRIQUE AUTOMOBILE a un découvert autorisé de 250 000 € garanti par Auxiga (gage sur
+le stock de véhicules). Un solde négatif dans cette limite est normal. Classe les frais Auxiga, agios et
+intérêts débiteurs dans « Intérêts / agios / financement de stock » et donne chaque mois leur total : c'est
+le coût réel du stock, à comparer à la marge dégagée sur les ventes.
+

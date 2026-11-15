@@ -206,3 +206,13 @@ export async function setAccountKind(accountId: string, formData: FormData) {
   await audit(me, "type_de_compte", `${a.name} (${a.iban ? "…" + a.iban.slice(-4) : "sans IBAN"}) → ${kind}`);
   revalidatePath("/finances");
 }
+
+export async function setOverdraft(accountId: string, formData: FormData) {
+  const me = await requireAdmin();
+  const raw = (str(formData.get("limit")) ?? "").replace(/\s|€/g, "").replace(",", ".");
+  const limit = Math.max(0, Math.min(100_000_000, Number(raw) || 0));
+  const note = (str(formData.get("note")) ?? "").slice(0, 300) || null;
+  const a = await prisma.bankAccount.update({ where: { id: accountId }, data: { overdraftLimit: limit, financingNote: note } });
+  await audit(me, "decouvert_autorise", `${a.name} (${a.iban ? "…" + a.iban.slice(-4) : "sans IBAN"}) → ${limit} €${note ? " — " + note : ""}`);
+  revalidatePath("/finances");
+}

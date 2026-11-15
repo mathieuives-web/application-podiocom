@@ -88,6 +88,9 @@ model BankAccount {
   excluded   Boolean   @default(false)
   // COURANT (trésorerie de la société) | SEQUESTRE (fonds de tiers, ex. dépôt-vente) | PRET (emprunt, crédit)
   kind       String    @default("COURANT")
+  // Découvert autorisé (ex. 250 000 € garanti par Auxiga sur le stock) et note sur ce financement
+  overdraftLimit Float   @default(0)
+  financingNote  String?
   lastSyncAt DateTime?
   createdAt  DateTime  @default(now())
 
