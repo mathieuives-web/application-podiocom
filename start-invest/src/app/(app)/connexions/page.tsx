@@ -101,7 +101,7 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                           {c.name}
                           {connected.length > 0 && <span className="block text-xs text-emerald-700">{connected.map((i) => i.label).join(", ")}</span>}
                         </span>
-                        <select name="bank" className="input py-1 text-xs flex-1 min-w-40" defaultValue={banks.find((b) => /shine/i.test(b.name))?.name ?? ""} required>
+                        <select name="bank" className="input py-1 text-xs flex-1 min-w-40" defaultValue={connected[0]?.label ?? ""} required>
                           <option value="">Banque…</option>
                           {banks.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
                         </select>

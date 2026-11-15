@@ -142,3 +142,27 @@ export async function sendReminderNow(reminderId: string) {
   revalidatePath("/finances");
   redirect(`/finances?msg=${encodeURIComponent(r.status === "SENT" ? `Relance envoyée à ${r.to}.` : `Relance non envoyée : ${r.error ?? "e-mail ou SMTP manquant"}`)}`);
 }
+
+/** Rattache un compte bancaire (et toutes ses opérations) à une autre société du groupe. */
+export async function moveAccount(accountId: string, formData: FormData) {
+  const me = await requireAdmin();
+  const companyId = str(formData.get("companyId"));
+  if (!companyId) return;
+  const [account, company] = await Promise.all([
+    prisma.bankAccount.findUniqueOrThrow({ where: { id: accountId } }),
+    prisma.company.findUniqueOrThrow({ where: { id: companyId } }),
+  ]);
+  await prisma.$transaction([
+    prisma.bankAccount.update({ where: { id: accountId }, data: { companyId } }),
+    prisma.bankTransaction.updateMany({ where: { accountId }, data: { companyId, invoiceId: null } }),
+  ]);
+  await audit(me, "compte_rattache", `${account.name} (${account.iban ? "…" + account.iban.slice(-4) : "sans IBAN"}) → ${company.name}`);
+  revalidatePath("/finances");
+}
+
+export async function renameAccount(accountId: string, formData: FormData) {
+  await requireAdmin();
+  const name = str(formData.get("name"));
+  if (name) await prisma.bankAccount.update({ where: { id: accountId }, data: { name: name.slice(0, 80) } });
+  revalidatePath("/finances");
+}

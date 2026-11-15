@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/session";
 import { financeSummary, monthlyFlows, invoiceStatus, eur } from "@/lib/finance";
 import {
   createCompany, createBankAccount, importStatement, createInvoice, markInvoicePaid, reconcileNow,
-  runControlNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow,
+  runControlNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow, moveAccount, renameAccount,
 } from "./actions";
 import { isAdmin } from "@/lib/session";
 import { loadAgents } from "@/lib/agents";
@@ -209,6 +209,45 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
                 <td className="text-xs text-slate-500">{c.lastSync ? fmt(new Date(c.lastSync)) : "jamais"}</td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="card overflow-x-auto">
+        <h2 className="font-semibold mb-1">Comptes bancaires</h2>
+        <p className="text-xs text-slate-500 mb-3">
+          Une connexion bancaire peut ramener les comptes de plusieurs sociétés : rattachez chaque compte à la bonne société
+          (ses opérations suivent) et donnez-lui un nom parlant.
+        </p>
+        <table className="table-base">
+          <thead><tr><th>Compte</th><th>Banque</th><th>IBAN</th><th className="text-right">Solde</th><th>Société</th></tr></thead>
+          <tbody>
+            {accounts.filter((a) => !companyId || a.companyId === companyId).map((a) => (
+              <tr key={a.id}>
+                <td>
+                  {admin ? (
+                    <form action={renameAccount.bind(null, a.id)} className="flex gap-1">
+                      <input name="name" defaultValue={a.name} className="input py-1 text-xs w-44" />
+                      <button className="text-xs underline">ok</button>
+                    </form>
+                  ) : a.name}
+                </td>
+                <td className="text-xs">{a.bank ?? "—"}</td>
+                <td className="text-xs font-mono">{a.iban ? `${a.iban.slice(0, 4)} … ${a.iban.slice(-4)}` : "—"}</td>
+                <td className="text-right font-medium whitespace-nowrap">{eur(a.balance)}</td>
+                <td>
+                  {admin ? (
+                    <form action={moveAccount.bind(null, a.id)} className="flex gap-1">
+                      <select name="companyId" defaultValue={a.companyId} className="input py-1 text-xs">
+                        {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      <button className="text-xs underline">ok</button>
+                    </form>
+                  ) : a.company.name}
+                </td>
+              </tr>
+            ))}
+            {accounts.length === 0 && <tr><td colSpan={5} className="text-center text-slate-400 py-4">Aucun compte : connectez une banque dans Connexions.</td></tr>}
           </tbody>
         </table>
       </section>
