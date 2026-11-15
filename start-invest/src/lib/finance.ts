@@ -49,7 +49,7 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
   const companies = await prisma.company.findMany({
     where: { active: true, ...(opts.companyId ? { id: opts.companyId } : {}) },
     include: {
-      bankAccounts: true,
+      bankAccounts: { where: { excluded: false } },
       invoices: true,
       transactions: { where: { date: { gte: from }, NOT: { category: INTERNAL } } },
     },

@@ -80,8 +80,12 @@ model BankAccount {
   iban       String?
   balance    Float     @default(0)
   currency   String    @default("EUR")
-  provider   String    @default("MANUAL") // MANUAL | QONTO | STRIPE
+  provider   String    @default("MANUAL") // MANUAL | BANQUE | QONTO | STRIPE
   externalId String?
+  // Société choisie automatiquement d'après le nom du compte (tant qu'aucun choix manuel n'a été fait)
+  autoAssigned Boolean  @default(true)
+  // Compte exclu du pilotage (ex. compte personnel) : ses opérations ne sont plus importées
+  excluded   Boolean   @default(false)
   lastSyncAt DateTime?
   createdAt  DateTime  @default(now())
 

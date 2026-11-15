@@ -113,6 +113,29 @@ type Tx = {
   note?: string | null;
 };
 
+const normName = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, " ").replace(/\b(SAS|SARL|EURL|SA|SCI|LE|LA|L)\b/g, " ").replace(/\s+/g, " ").trim();
+
+/** Société dont le nom correspond au nom du compte bancaire (ex. « L USINE » -> Le Bar L'Usine). */
+async function guessCompany(accountName: string | null | undefined) {
+  if (!accountName) return null;
+  const n = normName(accountName);
+  if (!n) return null;
+  const companies = await prisma.company.findMany({ where: { active: true } });
+  const scored = companies
+    .map((c) => {
+      const cn = normName(c.name);
+      const words = cn.split(" ").filter((w) => w.length > 2 && !["BAR", "FABRIQUE"].includes(w));
+      const exact = cn === n || cn.replace(/ /g, "") === n.replace(/ /g, "");
+      const contains = n.length > 3 && (cn.includes(n) || n.includes(cn));
+      const hits = words.filter((w) => n.includes(w)).length;
+      // Tous les mots distinctifs de la société doivent apparaître (évite « MATHIEU IVES » -> Auto Rac Ives).
+      return { c, score: exact ? 100 : contains ? 50 + n.length : words.length && hits === words.length ? hits * 10 : 0 };
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return scored.length && (scored.length === 1 || scored[0].score > scored[1].score) ? scored[0].c.id : null;
+}
+
 export async function syncEnableBanking(integration: { id: string; companyId: string; lastSyncAt: Date | null }, creds: BankCreds): Promise<SyncResult> {
   if (new Date(creds.validUntil).getTime() < Date.now()) {
     throw new Error(`L'accord bancaire ${creds.bank} a expiré : reconnectez la banque dans Connexions.`);
@@ -127,15 +150,25 @@ export async function syncEnableBanking(integration: { id: string; companyId: st
     const prefer = ["ITAV", "CLAV", "ITBD", "CLBD", "XPCD", "OTHR"];
     const b = [...bal.balances].sort((x, y) => prefer.indexOf(x.balance_type) - prefer.indexOf(y.balance_type))[0];
     const balance = b ? Number(b.balance_amount.amount) : undefined;
+    const name = a.name ?? details?.name ?? null;
+    const guessed = (await guessCompany(name)) ?? integration.companyId;
+    const existing = await prisma.bankAccount.findUnique({ where: { provider_externalId: { provider: "BANQUE", externalId: a.uid } } });
+    // Rattachement automatique d'après le nom du compte, tant que personne ne l'a changé à la main.
+    if (existing?.autoAssigned && existing.companyId !== guessed) {
+      await prisma.$transaction([
+        prisma.bankAccount.update({ where: { id: existing.id }, data: { companyId: guessed } }),
+        prisma.bankTransaction.updateMany({ where: { accountId: existing.id }, data: { companyId: guessed } }),
+      ]);
+    }
     const account = await prisma.bankAccount.upsert({
       where: { provider_externalId: { provider: "BANQUE", externalId: a.uid } },
       update: { lastSyncAt: new Date(), integrationId: integration.id, ...(balance !== undefined ? { balance } : {}), ...(iban ? { iban } : {}) },
       create: {
-        companyId: integration.companyId,
+        companyId: guessed,
         integrationId: integration.id,
         provider: "BANQUE",
         externalId: a.uid,
-        name: a.name ?? details?.name ?? `Compte ${creds.bank}`,
+        name: name ?? `Compte ${creds.bank}`,
         bank: creds.bank,
         iban,
         currency: a.currency ?? details?.currency ?? "EUR",
@@ -144,6 +177,7 @@ export async function syncEnableBanking(integration: { id: string; companyId: st
       },
     });
 
+    if (account.excluded) continue; // compte personnel ou hors pilotage : rien n'est importé
     let key: string | undefined;
     for (let page = 0; page < 200; page++) {
       const q = new URLSearchParams({ date_from: from.toISOString().slice(0, 10) });
@@ -162,7 +196,7 @@ export async function syncEnableBanking(integration: { id: string; companyId: st
         await prisma.bankTransaction.upsert({
           where: { accountId_externalId: { accountId: account.id, externalId } },
           update: { amount, label },
-          create: { accountId: account.id, companyId: integration.companyId, externalId, date: new Date(dateStr), label, counterparty, amount, category },
+          create: { accountId: account.id, companyId: account.companyId, externalId, date: new Date(dateStr), label, counterparty, amount, category },
         });
         transactions++;
       }

@@ -234,12 +234,13 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
                 </td>
                 <td className="text-xs">{a.bank ?? "—"}</td>
                 <td className="text-xs font-mono">{a.iban ? `${a.iban.slice(0, 4)} … ${a.iban.slice(-4)}` : "—"}</td>
-                <td className="text-right font-medium whitespace-nowrap">{eur(a.balance)}</td>
+                <td className="text-right font-medium whitespace-nowrap">{a.excluded ? <span className="text-xs text-slate-400">exclu</span> : eur(a.balance)}</td>
                 <td>
                   {admin ? (
                     <form action={moveAccount.bind(null, a.id)} className="flex gap-1">
-                      <select name="companyId" defaultValue={a.companyId} className="input py-1 text-xs">
+                      <select name="companyId" defaultValue={a.excluded ? "__exclure__" : a.companyId} className="input py-1 text-xs">
                         {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        <option value="__exclure__">Exclure (compte personnel)</option>
                       </select>
                       <button className="text-xs underline">ok</button>
                     </form>

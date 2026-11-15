@@ -148,12 +148,22 @@ export async function moveAccount(accountId: string, formData: FormData) {
   const me = await requireAdmin();
   const companyId = str(formData.get("companyId"));
   if (!companyId) return;
+  if (companyId === "__exclure__") {
+    const account = await prisma.bankAccount.findUniqueOrThrow({ where: { id: accountId } });
+    await prisma.$transaction([
+      prisma.bankTransaction.deleteMany({ where: { accountId } }),
+      prisma.bankAccount.update({ where: { id: accountId }, data: { excluded: true, autoAssigned: false, balance: 0 } }),
+    ]);
+    await audit(me, "compte_exclu", `${account.name} (${account.iban ? "…" + account.iban.slice(-4) : "sans IBAN"}) : opérations supprimées, plus d'import`);
+    revalidatePath("/finances");
+    return;
+  }
   const [account, company] = await Promise.all([
     prisma.bankAccount.findUniqueOrThrow({ where: { id: accountId } }),
     prisma.company.findUniqueOrThrow({ where: { id: companyId } }),
   ]);
   await prisma.$transaction([
-    prisma.bankAccount.update({ where: { id: accountId }, data: { companyId } }),
+    prisma.bankAccount.update({ where: { id: accountId }, data: { companyId, autoAssigned: false, excluded: false } }),
     prisma.bankTransaction.updateMany({ where: { accountId }, data: { companyId, invoiceId: null } }),
   ]);
   await audit(me, "compte_rattache", `${account.name} (${account.iban ? "…" + account.iban.slice(-4) : "sans IBAN"}) → ${company.name}`);
