@@ -6,20 +6,20 @@ const DAY = 24 * 3600 * 1000;
 const RULES: [string, RegExp][] = [
   ["Achats alimentaires", /metro|promocash|transgourmet|pomona|sysco|episaveurs|davigel|boucherie|primeur|poissonn/i],
   ["Boissons", /france boissons|c10|brasserie|brasseur|heineken|kronenbourg|ab inbev|pernod|ricard|bacardi|cave|vins?\b|spiritueux/i],
-  ["Énergie & eau", /\bedf\b|engie|ekwateur|totalenergies electricite|veolia|suez|saur|eau de/i],
-  ["Pièces auto", /oscaro|autodistribution|groupauto|alliance automotive|d[ée]p[ôo]t pi[èe]ces|pi[èe]ces auto|mister auto|bosch car/i],
+  ["Électricité / gaz / eau", /\bedf\b|engie|ekwateur|totalenergies electricite|veolia|suez|saur|eau de/i],
+  ["Pièces et fournitures auto", /oscaro|autodistribution|groupauto|alliance automotive|d[ée]p[ôo]t pi[èe]ces|pi[èe]ces auto|mister auto|bosch car/i],
   ["Cartes grises (ANTS)", /ants|carte grise|immatriculation/i],
   ["Carburant", /total ?energies|esso|shell|\bbp\b|avia|carburant|station|gazole|diesel|as24|dkv/i],
-  ["Péages & parking", /p[ée]age|vinci|sanef|aprr|autoroute|parking|indigo/i],
-  ["Entretien véhicules", /garage|pneu|euromaster|norauto|feu vert|m[ée]cani|carrosserie|contr[ôo]le technique|dekra|autovista/i],
+  ["Transport / déplacements", /p[ée]age|vinci|sanef|aprr|autoroute|parking|indigo/i],
+  ["Entretien / réparations", /garage|pneu|euromaster|norauto|feu vert|m[ée]cani|carrosserie|contr[ôo]le technique|dekra|autovista/i],
   ["Assurances", /assurance|axa|allianz|maif|macif|generali|groupama|hiscox/i],
   ["Salaires", /salaire|paie|virement.*salari/i],
-  ["Charges sociales", /urssaf|retraite|pr[ée]voyance|mutuelle/i],
-  ["Impôts & taxes", /dgfip|imp[ôo]t|tva|cfe|tr[ée]sor public/i],
+  ["Charges sociales (URSSAF, retraite, mutuelle)", /urssaf|retraite|pr[ée]voyance|mutuelle/i],
+  ["Impôts et taxes", /dgfip|imp[ôo]t|tva|cfe|tr[ée]sor public/i],
   ["Loyer", /loyer|bail/i],
-  ["Logiciels & abonnements", /google|microsoft|apple\.com|adobe|notion|slack|ovh|orange|sfr|bouygues|free mobile|abonnement|stripe fee|qonto/i],
+  ["Logiciels / abonnements", /google|microsoft|apple\.com|adobe|notion|slack|ovh|orange|sfr|bouygues|free mobile|abonnement|stripe fee|qonto/i],
   ["Frais bancaires", /frais|commission|cotisation carte|agios/i],
-  ["Emprunts & leasing", /pr[êe]t|[ée]ch[ée]ance|leasing|lld|loa|cr[ée]dit bail/i],
+  ["Remboursement d'emprunt", /pr[êe]t|[ée]ch[ée]ance|leasing|lld|loa|cr[ée]dit bail/i],
 ];
 
 export const INTERNAL = "Virements internes";
@@ -27,7 +27,7 @@ export const INTERNAL = "Virements internes";
 export function categorize(label: string, amount: number): string {
   if (/virement (interne|entre comptes)|vir(ement)? (de|vers) (start invest|sci mapo|la fabrique|auto rac|le bar|bar l.?usine)/i.test(label)) return INTERNAL;
   for (const [cat, re] of RULES) if (re.test(label)) return cat;
-  return amount >= 0 ? "Encaissements clients" : "Autres dépenses";
+  return amount >= 0 ? "Ventes / encaissements clients" : "Autres dépenses";
 }
 
 export function invoiceStatus(inv: { amount: number; paidAmount: number; dueDate: Date | null }) {

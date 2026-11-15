@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/prisma";
 import { loadAgents, reachableFrom, type AgentDef } from "@/lib/agents";
 import { financeSummary, invoiceStatus, escrowSummary } from "@/lib/finance";
+import { cashStatement } from "@/lib/categorization";
 import { shineMcpServersFor, SHINE_READ_TOOLS } from "@/lib/connectors";
 
 // Moteur d'exécution du board : chaque agent tourne sur l'API Claude avec son fichier
@@ -125,6 +126,16 @@ const DATA_TOOLS: Anthropic.Beta.BetaTool[] = [
     description:
       "Comptes séquestres (fonds de tiers, ex. dépôt-vente de La Fabrique Automobile) : solde, fonds reçus des acheteurs, reversements, derniers mouvements. Cet argent n'appartient PAS à la société : ne jamais le compter comme trésorerie ou chiffre d'affaires.",
     input_schema: { type: "object", properties: { societe: { type: "string" } }, additionalProperties: false },
+  },
+  {
+    name: "compte_de_resultat",
+    description:
+      "Compte de résultat de trésorerie d'une année : entrées et sorties classées par catégorie comptable (loyer, électricité / gaz / eau, salaires, charges sociales, impôts, achats...), mois par mois, totaux et solde. Comptes courants uniquement, hors virements internes au groupe, séquestre et prêts.",
+    input_schema: {
+      type: "object",
+      properties: { societe: { type: "string" }, annee: { type: "integer", description: "Défaut : année en cours." } },
+      additionalProperties: false,
+    },
   },
 ];
 
@@ -262,6 +273,10 @@ async function runDataTool(name: string, input: Record<string, unknown>): Promis
             .map(([c, v]) => `${c} ${round(v)}`),
         }));
     }
+    case "compte_de_resultat": {
+      const companyId = await resolveCompany(input.societe as string | undefined);
+      return cashStatement(companyId, Number(input.annee) || new Date().getFullYear());
+    }
     case "compte_sequestre": {
       const companyId = await resolveCompany(input.societe as string | undefined);
       return (await escrowSummary(companyId)).map((e) => ({
@@ -309,7 +324,7 @@ function systemPrompt(agent: AgentDef, all: AgentDef[], memory: string | null) {
 ---
 Contexte du board d'agents :
 - Tu es « ${agent.title} » (${agent.slug}), structure : ${agent.structure}.${parent ? ` Tu rends compte à ${parent.title}.` : " Tu rends compte directement au fondateur."}
-- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents, flux_mensuels et compte_sequestre donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
+- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents, flux_mensuels, compte_sequestre et compte_de_resultat donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
 ${reachable ? `- Tu peux déléguer une sous-question précise avec consulter_agent à :\n${reachable}\n- Ne délègue que ce qui apporte vraiment quelque chose : fais toi-même ce qui est simple.` : "- Tu n'as pas d'équipe à consulter : fais le travail toi-même."}
 - Réponds en français, de façon concise et actionnable, au format Markdown. Termine par « À faire par le fondateur » si une action humaine est nécessaire.
 - Tu as une MÉMOIRE personnelle qui persiste entre tes passages. Quand tu apprends quelque chose de durable et utile

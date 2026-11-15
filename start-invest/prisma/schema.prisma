@@ -285,3 +285,16 @@ model AppSetting {
   key   String @id
   value String
 }
+
+// Règle de classement : un libellé bancaire « normalisé » -> une catégorie comptable (apprise par l'IA ou corrigée à la main)
+model CategoryRule {
+  id        String   @id @default(cuid())
+  key       String
+  companyId String   @default("") // "" = règle valable pour tout le groupe
+  category  String
+  source    String   @default("IA") // IA | MANUEL
+  example   String?
+  createdAt DateTime @default(now())
+
+  @@unique([key, companyId])
+}

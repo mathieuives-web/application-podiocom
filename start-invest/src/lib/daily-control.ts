@@ -27,6 +27,11 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
     log.push(`Synchro : ${sync.filter((s) => s.ok).length}/${sync.length} connexion(s) OK`);
     for (const s of sync.filter((x) => !x.ok)) log.push(`  ⚠ ${s.error}`);
     log.push(`Rapprochement : ${await autoReconcile()} opération(s) reliée(s) à une facture`);
+    if (agentsConfigured()) {
+      const { aiCategorize } = await import("@/lib/categorization");
+      const cat = await aiCategorize().catch((e) => ({ learned: 0, applied: 0, error: (e as Error).message }));
+      log.push(`Classement comptable : ${cat.learned} nouveau(x) libellé(s), ${cat.applied} opération(s) classée(s)`);
+    }
     const rem = await runReminders();
     log.push(`Relances : ${rem.created} créée(s), ${rem.sent} envoyée(s) par e-mail`);
 

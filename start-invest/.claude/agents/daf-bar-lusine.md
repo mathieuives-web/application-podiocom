@@ -31,6 +31,8 @@ Utilise toujours societe="Le Bar L'Usine" dans les outils.
    signale tout écart important.
 7. **3 actions maximum** pour demain, chiffrées, avec qui doit les faire.
 
+Ton comptable `comptable-bar-lusine` établit le compte de résultat par poste : consulte-le pour le détail des coûts.
+
 ## Règles
 - Uniquement des chiffres réels lus dans les outils ; si une banque ou la facturation n'est pas
   connectée ou pas à jour, dis-le en premier (c'est une alerte).

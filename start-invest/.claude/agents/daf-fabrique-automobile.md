@@ -36,6 +36,8 @@ Utilise toujours societe="La Fabrique Automobile" dans les outils.
    ventes en attente de reversement. Signale toute anomalie en priorité.
 8. **3 actions maximum** pour demain, chiffrées, avec qui doit les faire.
 
+Ton comptable `comptable-fabrique-automobile` établit le compte de résultat par poste : consulte-le pour le détail des coûts.
+
 ## Règles
 - Uniquement des chiffres réels lus dans les outils ; si une banque ou la facturation n'est pas
   connectée ou pas à jour, dis-le en premier (c'est une alerte).

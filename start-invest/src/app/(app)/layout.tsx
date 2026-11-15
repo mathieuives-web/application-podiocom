@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/mise-en-route", label: "Mise en route" },
   { href: "/agents", label: "Board d'agents IA" },
   { href: "/finances", label: "Finances" },
+  { href: "/comptabilite", label: "Comptabilité" },
   { href: "/archives", label: "Archives" },
   { href: "/connexions", label: "Connexions", admin: true },
   { href: "/acces", label: "Accès" },
