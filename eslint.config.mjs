@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Application Start Invest séparée (son propre package.json et sa propre config)
+    "start-invest/**",
   ]),
 ]);
 

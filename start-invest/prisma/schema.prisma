@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN // tous les droits (fondateur)
+  MEMBER // associé, expert-comptable... : consulte, ne modifie pas les connexions ni les accès
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(MEMBER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Finances multi-sociétés (banques, factures, connexions logiciels)
+// ---------------------------------------------------------------------------
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  activity  String?
+  color     String   @default("#7f1d1d")
+  active    Boolean  @default(true)
+  // Relances automatiques des factures clients en retard (désactivées tant que non choisies)
+  autoReminders Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  bankAccounts BankAccount[]
+  transactions BankTransaction[]
+  invoices     Invoice[]
+  integrations Integration[]
+}
+
+model BankAccount {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  bank       String?
+  iban       String?
+  balance    Float     @default(0)
+  currency   String    @default("EUR")
+  provider   String    @default("MANUAL") // MANUAL | QONTO | STRIPE
+  externalId String?
+  lastSyncAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  integrationId String?
+  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+
+  transactions BankTransaction[]
+
+  @@unique([provider, externalId])
+}
+
+model BankTransaction {
+  id           String      @id @default(cuid())
+  accountId    String
+  account      BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date         DateTime
+  label        String
+  amount       Float // positif = entrée d'argent, négatif = sortie
+  category     String?
+  counterparty String?
+  externalId   String?
+  invoiceId    String?
+  invoice      Invoice?    @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt    DateTime    @default(now())
+
+  @@unique([accountId, externalId])
+  @@index([companyId, date])
+}
+
+enum InvoiceKind {
+  CLIENT
+  SUPPLIER
+}
+
+model Invoice {
+  id           String      @id @default(cuid())
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  kind         InvoiceKind
+  number       String?
+  counterparty String
+  counterpartyEmail String?
+  // true si le logiciel de facturation (ex. Shine Facture) relance déjà lui-même ce client
+  externalReminders Boolean @default(false)
+  label        String?
+  issueDate    DateTime
+  dueDate      DateTime?
+  amount       Float // TTC
+  paidAmount   Float       @default(0)
+  provider     String      @default("MANUAL") // MANUAL | PENNYLANE
+  externalId   String?
+  createdAt    DateTime    @default(now())
+
+  integrationId String?
+  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+
+  transactions BankTransaction[]
+  reminders    Reminder[]
+
+  @@unique([provider, externalId])
+  @@index([companyId, kind])
+}
+
+model Integration {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  provider    String // SHINE | QONTO | STRIPE | PENNYLANE
+  label       String?
+  credentials String // chiffré (AES-256-GCM, clé dérivée de AUTH_SECRET)
+  status      String    @default("PENDING") // PENDING | OK | ERROR
+  lastSyncAt  DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+
+  bankAccounts BankAccount[]
+  invoices     Invoice[]
+}
+
+// ---------------------------------------------------------------------------
+// Board d'agents IA : historique des passages (convocations)
+// ---------------------------------------------------------------------------
+
+model AgentRun {
+  id         String    @id @default(cuid())
+  agent      String // slug du fichier .claude/agents/<slug>.md
+  task       String
+  status     String    @default("RUNNING") // RUNNING | DONE | ERROR
+  kind       String    @default("MANUAL") // MANUAL | DAILY (contrôle quotidien automatique)
+  companyId  String?
+  output     String?
+  error      String?
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  userId     String?
+
+  parentId String?
+  parent   AgentRun?  @relation("AgentRunTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children AgentRun[] @relation("AgentRunTree")
+
+  @@index([agent, startedAt])
+}
+
+// Relances clients (niveau 1 = J+3 courtoise, 2 = J+15 ferme, 3 = J+30 dernière relance)
+model Reminder {
+  id        String   @id @default(cuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  level     Int
+  to        String?
+  subject   String
+  body      String
+  status    String // SENT | DRAFT (à envoyer à la main) | ERROR
+  error     String?
+  createdAt DateTime @default(now())
+  sentAt    DateTime?
+
+  @@unique([invoiceId, level])
+}
+
+// Un passage du contrôle quotidien (un par jour, heure de Paris)
+model DailyControl {
+  id         String    @id @default(cuid())
+  day        String    @unique // AAAA-MM-JJ
+  status     String    @default("RUNNING") // RUNNING | DONE | ERROR
+  log        String?
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+}
