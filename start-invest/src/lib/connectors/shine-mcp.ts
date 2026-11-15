@@ -100,9 +100,22 @@ export async function shineMcpFresh(creds: ShineMcpCreds): Promise<{ creds: Shin
 
 async function withClient<T>(creds: ShineMcpCreds, fn: (c: Client) => Promise<T>) {
   const client = new Client({ name: "start-invest", version: "1.0.0" });
-  const transport = new StreamableHTTPClientTransport(new URL(SHINE_MCP_URL), {
-    requestInit: { headers: { Authorization: `Bearer ${creds.accessToken}` } },
-  });
+  // Le serveur Shine est derrière un répartiteur de charge à session « collante » (cookies AWSALB) :
+  // il faut renvoyer ses cookies pour que tous les appels arrivent sur la même machine.
+  const jar = new Map<string, string>();
+  const stickyFetch = async (url: string | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${creds.accessToken}`);
+    if (jar.size) headers.set("Cookie", [...jar].map(([k, v]) => `${k}=${v}`).join("; "));
+    const res = await fetch(url, { ...init, headers });
+    for (const c of res.headers.getSetCookie?.() ?? []) {
+      const [pair] = c.split(";");
+      const i = pair.indexOf("=");
+      if (i > 0) jar.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim());
+    }
+    return res;
+  };
+  const transport = new StreamableHTTPClientTransport(new URL(SHINE_MCP_URL), { fetch: stickyFetch });
   await client.connect(transport);
   try {
     return await fn(client);
