@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/session";
 import { audit } from "@/lib/audit";
 import { DOC_TYPES, deleteDocument, processDocument, saveDocument, type DocType } from "@/lib/documents";
 import { prisma } from "@/lib/prisma";
+import { runFullAnalysis } from "@/lib/daily-control";
 
 export async function uploadDocuments(formData: FormData) {
   const me = await requireAdmin();
@@ -44,6 +45,8 @@ export async function uploadDocuments(formData: FormData) {
   // Lecture par l'IA en arrière-plan, un document à la fois.
   after(async () => {
     for (const id of queued) await processDocument(id);
+    // Dès que les documents sont lus, le directeur financier de la société analyse tout l'historique.
+    if (queued.length) await runFullAnalysis(companyId, me.id).catch((e) => console.error("[analyse]", e));
   });
   revalidatePath("/archives");
   const msg = `${queued.length} document(s) déposé(s) et en cours de lecture.${problems.length ? " " + problems.join(" · ") : ""}`;
@@ -63,4 +66,12 @@ export async function removeDocument(id: string) {
   await audit(me, "document_supprime", doc.fileName);
   await deleteDocument(id);
   revalidatePath("/archives");
+}
+
+export async function launchAnalysis(companyId: string) {
+  const me = await requireAdmin();
+  const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+  await audit(me, "analyse_complete_lancee", company.name);
+  after(() => runFullAnalysis(companyId, me.id).then(() => undefined).catch((e) => console.error("[analyse]", e)));
+  redirect("/archives?msg=" + encodeURIComponent(`Analyse complète de ${company.name} lancée : le directeur financier lit tout l'historique (quelques minutes).`));
 }

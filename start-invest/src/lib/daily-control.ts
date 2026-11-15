@@ -45,7 +45,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
             slug: daf.slug,
             kind: "DAILY",
             companyId: c.id,
-            task: `Contrôle quotidien du ${date} pour ${c.name}. Rédige ton rapport du jour en suivant exactement ta procédure (verdict en première ligne).`,
+            task: `Contrôle quotidien du ${date} pour ${c.name}. Rédige ton rapport du jour en suivant exactement ta procédure (verdict en première ligne). Ensuite, mets à jour ta mémoire avec ce que tu as appris aujourd'hui.`,
           });
           reports.push(`### ${daf.title} (${c.name})\n${r.output}`);
         } catch (e) {
@@ -67,4 +67,35 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
     log.push(`Erreur : ${(e as Error).message}`);
     return prisma.dailyControl.update({ where: { id: control.id }, data: { status: "ERROR", log: log.join("\n"), finishedAt: new Date() } });
   }
+}
+
+/**
+ * Analyse complète d'une société par son directeur financier : tout l'historique disponible
+ * (bilans, relevés, factures), puis mémorisation de ce qu'il faut retenir. Lancée automatiquement
+ * après un dépôt de documents, ou à la demande.
+ */
+export async function runFullAnalysis(companyId: string, userId?: string | null) {
+  if (!agentsConfigured()) return null;
+  const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+  const agents = await loadAgents();
+  const daf = agents.find((a) => a.slug.startsWith("daf-") && a.structure === company.name) ?? agents.find((a) => a.slug === "cfo");
+  if (!daf) return null;
+  const running = await prisma.agentRun.findFirst({
+    where: { agent: daf.slug, kind: "ANALYSIS", status: "RUNNING", startedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
+  });
+  if (running) return running;
+  return executeAgent({
+    slug: daf.slug,
+    kind: "ANALYSIS",
+    companyId,
+    userId,
+    task: `ANALYSE COMPLÈTE de ${company.name} (société=\"${company.name}\") à partir de tout l'historique disponible.
+1. Utilise lister_documents, lire_bilans, flux_mensuels (60 mois), lister_factures et lister_transactions pour tout lire.
+2. Rédige un diagnostic complet : évolution du CA, des marges et du résultat année par année ; saisonnalité mois par mois ;
+   structure des charges et postes qui dérivent ; trésorerie et endettement ; clients et délais de paiement ; risques ;
+   ce que la société fait bien ; les 5 leviers les plus rentables pour gagner plus d'argent, chiffrés.
+3. Indique précisément quelles données manquent (années de bilans, mois de relevés) pour une analyse parfaite.
+4. Termine en mettant à jour ta mémoire avec l'essentiel à retenir pour tes contrôles quotidiens (repères chiffrés,
+   saisonnalité, seuils d'alerte, points à surveiller).`,
+  });
 }

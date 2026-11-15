@@ -264,3 +264,11 @@ model FinancialStatement {
 
   @@unique([companyId, year])
 }
+
+// Mémoire d'un agent : ce qu'il a appris sur sa société, relue à chaque passage et enrichie chaque jour
+model AgentMemory {
+  id        String   @id @default(cuid())
+  agent     String   @unique
+  content   String
+  updatedAt DateTime @updatedAt
+}

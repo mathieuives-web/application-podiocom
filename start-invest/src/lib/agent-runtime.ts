@@ -109,6 +109,16 @@ const DATA_TOOLS: Anthropic.Beta.BetaTool[] = [
     description: "Documents archivés d'une société (bilans, relevés, exports de factures) avec ce qui en a été extrait. Permet de savoir quel historique est disponible.",
     input_schema: { type: "object", properties: { societe: { type: "string" } }, additionalProperties: false },
   },
+  {
+    name: "flux_mensuels",
+    description:
+      "Historique bancaire mois par mois (jusqu'à 60 mois) : entrées, sorties, résultat et principales catégories de dépenses de chaque mois. Idéal pour la saisonnalité, les tendances et comparer avec les années précédentes. Hors virements internes.",
+    input_schema: {
+      type: "object",
+      properties: { societe: { type: "string" }, mois: { type: "integer", description: "Nombre de mois (défaut 36, max 60)." } },
+      additionalProperties: false,
+    },
+  },
 ];
 
 async function runDataTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -208,6 +218,42 @@ async function runDataTool(name: string, input: Record<string, unknown>): Promis
       });
       return docs.map((d) => ({ societe: d.company.name, type: d.type, exercice: d.year, fichier: d.fileName, etat: d.status, extrait: d.summary ?? d.error }));
     }
+    case "flux_mensuels": {
+      const companyId = await resolveCompany(input.societe as string | undefined);
+      const months = Math.min(Number(input.mois) || 36, 60);
+      const start = new Date();
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      start.setMonth(start.getMonth() - (months - 1));
+      const txs = await prisma.bankTransaction.findMany({
+        where: { date: { gte: start }, NOT: { category: "Virements internes" }, ...(companyId ? { companyId } : {}) },
+        select: { date: true, amount: true, category: true },
+      });
+      const byMonth = new Map<string, { entrees: number; sorties: number; cats: Record<string, number> }>();
+      for (const t of txs) {
+        const k = t.date.toISOString().slice(0, 7);
+        const m = byMonth.get(k) ?? { entrees: 0, sorties: 0, cats: {} };
+        if (t.amount >= 0) m.entrees += t.amount;
+        else {
+          m.sorties -= t.amount;
+          const c = t.category ?? "Autres dépenses";
+          m.cats[c] = (m.cats[c] ?? 0) - t.amount;
+        }
+        byMonth.set(k, m);
+      }
+      return [...byMonth.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([mois, m]) => ({
+          mois,
+          entrees: round(m.entrees),
+          sorties: round(m.sorties),
+          resultat: round(m.entrees - m.sorties),
+          principales_depenses: Object.entries(m.cats)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([c, v]) => `${c} ${round(v)}`),
+        }));
+    }
     case "lister_relances": {
       const companyId = await resolveCompany(input.societe as string | undefined);
       const rems = await prisma.reminder.findMany({
@@ -236,7 +282,7 @@ async function runDataTool(name: string, input: Record<string, unknown>): Promis
 
 // ---------------------------------------------------------------- exécution
 
-function systemPrompt(agent: AgentDef, all: AgentDef[]) {
+function systemPrompt(agent: AgentDef, all: AgentDef[], memory: string | null) {
   const reachable = reachableFrom(agent, all)
     .map((s) => all.find((a) => a.slug === s)!)
     .map((a) => `- \`${a.slug}\` (${a.title}) : ${a.description}`)
@@ -247,9 +293,15 @@ function systemPrompt(agent: AgentDef, all: AgentDef[]) {
 ---
 Contexte du board d'agents :
 - Tu es « ${agent.title} » (${agent.slug}), structure : ${agent.structure}.${parent ? ` Tu rends compte à ${parent.title}.` : " Tu rends compte directement au fondateur."}
-- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans et lister_documents donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
+- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents et flux_mensuels donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
 ${reachable ? `- Tu peux déléguer une sous-question précise avec consulter_agent à :\n${reachable}\n- Ne délègue que ce qui apporte vraiment quelque chose : fais toi-même ce qui est simple.` : "- Tu n'as pas d'équipe à consulter : fais le travail toi-même."}
-- Réponds en français, de façon concise et actionnable, au format Markdown. Termine par « À faire par le fondateur » si une action humaine est nécessaire.`;
+- Réponds en français, de façon concise et actionnable, au format Markdown. Termine par « À faire par le fondateur » si une action humaine est nécessaire.
+- Tu as une MÉMOIRE personnelle qui persiste entre tes passages. Quand tu apprends quelque chose de durable et utile
+  (tendance, saisonnalité, client qui paie en retard, dépense récurrente, décision du fondateur, anomalie à surveiller),
+  mets-la à jour avec l'outil mettre_a_jour_memoire en réécrivant la mémoire complète (synthèse, 6 000 caractères max).
+
+## Ta mémoire actuelle
+${memory?.trim() || "(vide : tu n'as encore rien mémorisé)"}`;
 }
 
 export async function executeAgent(opts: {
@@ -283,7 +335,21 @@ export async function executeAgent(opts: {
 
   try {
     const reachable = depth < MAX_DEPTH - 1 ? reachableFrom(agent, all) : [];
-    const tools: Anthropic.Beta.BetaToolUnion[] = [...DATA_TOOLS];
+    const tools: Anthropic.Beta.BetaToolUnion[] = [
+      ...DATA_TOOLS,
+      {
+        name: "mettre_a_jour_memoire",
+        description:
+          "Réécrit ta mémoire personnelle (ce que tu sais de ta société / de ton périmètre). Donne la version COMPLÈTE et à jour, en puces courtes, 6 000 caractères maximum. Ne mémorise que des faits vérifiés.",
+        input_schema: {
+          type: "object",
+          properties: { contenu: { type: "string" } },
+          required: ["contenu"],
+          additionalProperties: false,
+        },
+      },
+    ];
+    const memory = (await prisma.agentMemory.findUnique({ where: { agent: agent.slug } }))?.content ?? null;
     if (reachable.length) {
       tools.push({
         name: "consulter_agent",
@@ -312,7 +378,7 @@ export async function executeAgent(opts: {
       const response = await anthropic().beta.messages.create({
         model: MODELS[agent.model] ?? MODELS.opus,
         max_tokens: 16000,
-        system: systemPrompt(agent, all),
+        system: systemPrompt(agent, all, memory),
         tools,
         messages,
         output_config: { effort: depth === 0 ? "high" : "medium" },
@@ -342,6 +408,12 @@ export async function executeAgent(opts: {
         toolUses.map(async (tu): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
           const input = (tu.input ?? {}) as Record<string, unknown>;
           try {
+            if (tu.name === "mettre_a_jour_memoire") {
+              const content = String(input.contenu ?? "").slice(0, 6000);
+              if (!content.trim()) throw new Error("Mémoire vide refusée.");
+              await prisma.agentMemory.upsert({ where: { agent: agent.slug }, update: { content }, create: { agent: agent.slug, content } });
+              return { type: "tool_result", tool_use_id: tu.id, content: "Mémoire mise à jour." };
+            }
             if (tu.name === "consulter_agent") {
               const target = String(input.agent);
               if (!reachable.includes(target)) throw new Error(`Tu ne peux pas consulter « ${target} ».`);
