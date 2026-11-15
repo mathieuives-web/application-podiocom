@@ -196,3 +196,13 @@ export async function autoAssignAccounts() {
   revalidatePath("/finances");
   redirect(`/finances?msg=${encodeURIComponent(`${moved} compte(s) rangé(s) dans la société correspondant à leur nom. Vérifiez le tableau « Comptes bancaires ».`)}`);
 }
+
+/** Type de compte : COURANT (trésorerie), SEQUESTRE (fonds de tiers), PRET (emprunt). */
+export async function setAccountKind(accountId: string, formData: FormData) {
+  const me = await requireAdmin();
+  const kind = str(formData.get("kind"));
+  if (!kind || !["COURANT", "SEQUESTRE", "PRET"].includes(kind)) return;
+  const a = await prisma.bankAccount.update({ where: { id: accountId }, data: { kind } });
+  await audit(me, "type_de_compte", `${a.name} (${a.iban ? "…" + a.iban.slice(-4) : "sans IBAN"}) → ${kind}`);
+  revalidatePath("/finances");
+}

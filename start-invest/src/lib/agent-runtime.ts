@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/prisma";
 import { loadAgents, reachableFrom, type AgentDef } from "@/lib/agents";
-import { financeSummary, invoiceStatus } from "@/lib/finance";
+import { financeSummary, invoiceStatus, escrowSummary } from "@/lib/finance";
 import { shineMcpServersFor, SHINE_READ_TOOLS } from "@/lib/connectors";
 
 // Moteur d'exécution du board : chaque agent tourne sur l'API Claude avec son fichier
@@ -120,6 +120,12 @@ const DATA_TOOLS: Anthropic.Beta.BetaTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "compte_sequestre",
+    description:
+      "Comptes séquestres (fonds de tiers, ex. dépôt-vente de La Fabrique Automobile) : solde, fonds reçus des acheteurs, reversements, derniers mouvements. Cet argent n'appartient PAS à la société : ne jamais le compter comme trésorerie ou chiffre d'affaires.",
+    input_schema: { type: "object", properties: { societe: { type: "string" } }, additionalProperties: false },
+  },
 ];
 
 async function runDataTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -144,7 +150,7 @@ async function runDataTool(name: string, input: Record<string, unknown>): Promis
           ...(sens === "entrees" ? { amount: { gt: 0 } } : sens === "sorties" ? { amount: { lt: 0 } } : {}),
           ...(input.categorie ? { category: String(input.categorie) } : {}),
         },
-        include: { company: { select: { name: true } }, account: { select: { name: true } }, invoice: { select: { number: true, counterparty: true } } },
+        include: { company: { select: { name: true } }, account: { select: { name: true, kind: true } }, invoice: { select: { number: true, counterparty: true } } },
         orderBy: { date: "desc" },
         take: Math.min(Number(input.limite) || 100, 500),
       });
@@ -152,6 +158,7 @@ async function runDataTool(name: string, input: Record<string, unknown>): Promis
         date: t.date.toISOString().slice(0, 10),
         societe: t.company.name,
         compte: t.account.name,
+        type_compte: t.account.kind === "SEQUESTRE" ? "séquestre (fonds de tiers)" : t.account.kind === "PRET" ? "prêt" : "courant",
         libelle: t.label,
         montant: round(t.amount),
         categorie: t.category,
@@ -227,7 +234,7 @@ async function runDataTool(name: string, input: Record<string, unknown>): Promis
       start.setHours(0, 0, 0, 0);
       start.setMonth(start.getMonth() - (months - 1));
       const txs = await prisma.bankTransaction.findMany({
-        where: { date: { gte: start }, NOT: { category: "Virements internes" }, ...(companyId ? { companyId } : {}) },
+        where: { date: { gte: start }, NOT: { category: "Virements internes" }, account: { kind: "COURANT", excluded: false }, ...(companyId ? { companyId } : {}) },
         select: { date: true, amount: true, category: true },
       });
       const byMonth = new Map<string, { entrees: number; sorties: number; cats: Record<string, number> }>();
@@ -254,6 +261,14 @@ async function runDataTool(name: string, input: Record<string, unknown>): Promis
             .slice(0, 5)
             .map(([c, v]) => `${c} ${round(v)}`),
         }));
+    }
+    case "compte_sequestre": {
+      const companyId = await resolveCompany(input.societe as string | undefined);
+      return (await escrowSummary(companyId)).map((e) => ({
+        ...e,
+        recent: e.recent.map((r) => ({ ...r, date: r.date.toISOString().slice(0, 10), amount: round(r.amount) })),
+        largestIn: e.largestIn.map((r) => ({ ...r, date: r.date.toISOString().slice(0, 10), amount: round(r.amount) })),
+      }));
     }
     case "lister_relances": {
       const companyId = await resolveCompany(input.societe as string | undefined);
@@ -294,7 +309,7 @@ function systemPrompt(agent: AgentDef, all: AgentDef[], memory: string | null) {
 ---
 Contexte du board d'agents :
 - Tu es « ${agent.title} » (${agent.slug}), structure : ${agent.structure}.${parent ? ` Tu rends compte à ${parent.title}.` : " Tu rends compte directement au fondateur."}
-- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents et flux_mensuels donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
+- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents, flux_mensuels et compte_sequestre donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
 ${reachable ? `- Tu peux déléguer une sous-question précise avec consulter_agent à :\n${reachable}\n- Ne délègue que ce qui apporte vraiment quelque chose : fais toi-même ce qui est simple.` : "- Tu n'as pas d'équipe à consulter : fais le travail toi-même."}
 - Réponds en français, de façon concise et actionnable, au format Markdown. Termine par « À faire par le fondateur » si une action humaine est nécessaire.
 - Tu as une MÉMOIRE personnelle qui persiste entre tes passages. Quand tu apprends quelque chose de durable et utile

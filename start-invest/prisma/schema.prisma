@@ -86,6 +86,8 @@ model BankAccount {
   autoAssigned Boolean  @default(true)
   // Compte exclu du pilotage (ex. compte personnel) : ses opérations ne sont plus importées
   excluded   Boolean   @default(false)
+  // COURANT (trésorerie de la société) | SEQUESTRE (fonds de tiers, ex. dépôt-vente) | PRET (emprunt, crédit)
+  kind       String    @default("COURANT")
   lastSyncAt DateTime?
   createdAt  DateTime  @default(now())
 

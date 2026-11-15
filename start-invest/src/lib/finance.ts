@@ -51,7 +51,7 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
     include: {
       bankAccounts: { where: { excluded: false } },
       invoices: true,
-      transactions: { where: { date: { gte: from }, NOT: { category: INTERNAL } } },
+      transactions: { where: { date: { gte: from }, NOT: { category: INTERNAL }, account: { kind: "COURANT", excluded: false } } },
     },
     orderBy: { name: "asc" },
   });
@@ -60,7 +60,11 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
     const month = c.transactions.filter((t) => t.date >= monthStart);
     const monthNet = month.reduce((s, t) => s + t.amount, 0);
     c.transactions = c.transactions.filter((t) => t.date >= since);
-    const cash = c.bankAccounts.reduce((s, a) => s + a.balance, 0);
+    const current = c.bankAccounts.filter((a) => a.kind === "COURANT");
+    const cash = current.reduce((s, a) => s + a.balance, 0);
+    // Fonds de tiers (séquestre dépôt-vente) et emprunts : suivis à part, jamais comptés comme trésorerie.
+    const escrow = c.bankAccounts.filter((a) => a.kind === "SEQUESTRE").reduce((s, a) => s + a.balance, 0);
+    const loans = c.bankAccounts.filter((a) => a.kind === "PRET").reduce((s, a) => s + a.balance, 0);
     const inflow = c.transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
     const outflow = Math.abs(c.transactions.filter((t) => t.amount < 0).reduce((s, t) => s + t.amount, 0));
     const byCategory: Record<string, number> = {};
@@ -81,12 +85,14 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
       color: c.color,
       accounts: c.bankAccounts.length,
       cash,
+      escrow,
+      loans,
       inflow,
       outflow,
       net: inflow - outflow,
       monthNet,
       profitable: inflow - outflow >= 0,
-      hasData: c.bankAccounts.length > 0,
+      hasData: current.length > 0,
       byCategory: Object.entries(byCategory)
         .sort((a, b) => b[1] - a[1])
         .map(([category, amount]) => ({ category, amount })),
@@ -100,6 +106,8 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
 
   const total = rows.reduce(
     (s, r) => ({
+      escrow: s.escrow + r.escrow,
+      loans: s.loans + r.loans,
       cash: s.cash + r.cash,
       inflow: s.inflow + r.inflow,
       outflow: s.outflow + r.outflow,
@@ -107,7 +115,7 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
       receivablesLate: s.receivablesLate + r.receivablesLate,
       payables: s.payables + r.payables,
     }),
-    { cash: 0, inflow: 0, outflow: 0, receivables: 0, receivablesLate: 0, payables: 0 }
+    { escrow: 0, loans: 0, cash: 0, inflow: 0, outflow: 0, receivables: 0, receivablesLate: 0, payables: 0 }
   );
 
   return { periodDays: days, companies: rows, total: { ...total, net: total.inflow - total.outflow } };
@@ -120,7 +128,7 @@ export async function monthlyFlows(months = 6, companyId?: string) {
   start.setHours(0, 0, 0, 0);
   start.setMonth(start.getMonth() - (months - 1));
   const txs = await prisma.bankTransaction.findMany({
-    where: { date: { gte: start }, NOT: { category: INTERNAL }, ...(companyId ? { companyId } : {}) },
+    where: { date: { gte: start }, NOT: { category: INTERNAL }, account: { kind: "COURANT", excluded: false }, ...(companyId ? { companyId } : {}) },
     select: { date: true, amount: true },
   });
   const buckets = Array.from({ length: months }, (_, i) => {
@@ -189,3 +197,33 @@ export async function autoReconcile(companyId?: string) {
 
 export const eur = (n: number) =>
   n.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+
+/** Tableau de bord des comptes séquestres (fonds de tiers, ex. dépôt-vente). */
+export async function escrowSummary(companyId?: string) {
+  const accounts = await prisma.bankAccount.findMany({
+    where: { kind: "SEQUESTRE", excluded: false, ...(companyId ? { companyId } : {}) },
+    include: { company: { select: { name: true } } },
+  });
+  const since30 = new Date(Date.now() - 30 * DAY);
+  const since365 = new Date(Date.now() - 365 * DAY);
+  return Promise.all(
+    accounts.map(async (a) => {
+      const txs = await prisma.bankTransaction.findMany({ where: { accountId: a.id, date: { gte: since365 } }, orderBy: { date: "desc" } });
+      const sum = (list: typeof txs, sign: 1 | -1) => list.filter((t) => (sign > 0 ? t.amount > 0 : t.amount < 0)).reduce((s, t) => s + Math.abs(t.amount), 0);
+      const last30 = txs.filter((t) => t.date >= since30);
+      return {
+        id: a.id,
+        company: a.company.name,
+        name: a.name,
+        iban: a.iban,
+        balance: a.balance,
+        received30: sum(last30, 1),
+        paidOut30: sum(last30, -1),
+        received365: sum(txs, 1),
+        paidOut365: sum(txs, -1),
+        recent: txs.slice(0, 25).map((t) => ({ date: t.date, label: t.label, amount: t.amount })),
+        largestIn: txs.filter((t) => t.amount > 0).sort((x, y) => y.amount - x.amount).slice(0, 5).map((t) => ({ date: t.date, label: t.label, amount: t.amount })),
+      };
+    })
+  );
+}

@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { financeSummary, monthlyFlows, invoiceStatus, eur } from "@/lib/finance";
+import { financeSummary, monthlyFlows, invoiceStatus, eur, escrowSummary } from "@/lib/finance";
 import {
   createCompany, createBankAccount, importStatement, createInvoice, markInvoicePaid, reconcileNow,
-  runControlNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow, moveAccount, renameAccount, autoAssignAccounts,
+  runControlNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow, moveAccount, renameAccount, autoAssignAccounts, setAccountKind,
 } from "./actions";
 import AccountCompanySelect from "./AccountCompanySelect";
+import AccountKindSelect from "./AccountKindSelect";
 import { isAdmin } from "@/lib/session";
 import { loadAgents } from "@/lib/agents";
 import { LEVELS, smtpConfigured } from "@/lib/reminders";
@@ -35,6 +36,7 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
   const lastReport = (slug: string) => dailyRuns.find((r) => r.agent === slug && r.status === "DONE");
   const cfoReview = lastReport("cfo");
 
+  const escrows = await escrowSummary(companyId);
   const [summary, flows, companies, accounts, transactions, openInvoices] = await Promise.all([
     financeSummary({ companyId, days: 30 }),
     monthlyFlows(6, companyId),
@@ -154,6 +156,50 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
         <Kpi label="À payer" value={eur(t.payables)} />
       </section>
 
+      {(t.escrow !== 0 || t.loans !== 0) && (
+        <p className="text-xs text-slate-500 -mt-3">
+          Trésorerie = comptes courants uniquement.
+          {t.escrow !== 0 && <> Fonds de tiers en séquestre (non disponibles) : <strong>{eur(t.escrow)}</strong>.</>}
+          {t.loans !== 0 && <> Comptes de prêt / crédit : <strong>{eur(t.loans)}</strong>.</>}
+        </p>
+      )}
+
+      {escrows.map((e) => (
+        <section key={e.id} className="card space-y-3 border-indigo-200" style={{ background: "#f8f9ff" }}>
+          <div className="flex flex-wrap justify-between gap-2">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-indigo-700">Compte séquestre — fonds des vendeurs en dépôt-vente</p>
+              <h2 className="font-semibold">{e.company} · {e.name} {e.iban && <span className="font-mono text-xs text-slate-500">…{e.iban.slice(-4)}</span>}</h2>
+              <p className="text-xs text-slate-500">Cet argent n&apos;appartient pas à la société : il n&apos;entre ni dans la trésorerie ni dans le résultat.</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-slate-500">Solde séquestre</p>
+              <p className="text-2xl font-bold text-indigo-900">{eur(e.balance)}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="rounded border bg-white p-2"><p className="text-xs text-slate-500">Reçu des acheteurs (30 j)</p><p className="font-semibold text-emerald-700">{eur(e.received30)}</p></div>
+            <div className="rounded border bg-white p-2"><p className="text-xs text-slate-500">Reversé / sorti (30 j)</p><p className="font-semibold text-red-800">{eur(e.paidOut30)}</p></div>
+            <div className="rounded border bg-white p-2"><p className="text-xs text-slate-500">Reçu sur 12 mois</p><p className="font-semibold">{eur(e.received365)}</p></div>
+            <div className="rounded border bg-white p-2"><p className="text-xs text-slate-500">Reversé / sorti sur 12 mois</p><p className="font-semibold">{eur(e.paidOut365)}</p></div>
+          </div>
+          <details>
+            <summary className="cursor-pointer text-xs underline">Derniers mouvements du séquestre</summary>
+            <table className="table-base mt-2">
+              <tbody>
+                {e.recent.map((r, i) => (
+                  <tr key={i}>
+                    <td className="whitespace-nowrap text-xs">{fmt(r.date)}</td>
+                    <td className="text-xs">{r.label}</td>
+                    <td className={`text-right text-xs font-medium whitespace-nowrap ${r.amount >= 0 ? "text-emerald-700" : "text-red-800"}`}>{r.amount.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        </section>
+      ))}
+
       <section className="grid lg:grid-cols-2 gap-4">
         <div className="card">
           <h2 className="font-semibold mb-3">Entrées / sorties sur 6 mois</h2>
@@ -228,7 +274,7 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
           (le choix s&apos;enregistre tout seul, ses opérations suivent) et donnez-lui un nom parlant.
         </p>
         <table className="table-base">
-          <thead><tr><th>Compte</th><th>Banque</th><th>IBAN</th><th className="text-right">Solde</th><th>Société</th></tr></thead>
+          <thead><tr><th>Compte</th><th>Banque</th><th>IBAN</th><th className="text-right">Solde</th><th>Type</th><th>Société</th></tr></thead>
           <tbody>
             {accounts.filter((a) => !companyId || a.companyId === companyId).map((a) => (
               <tr key={a.id}>
@@ -244,6 +290,13 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
                 <td className="text-xs font-mono">{a.iban ? `${a.iban.slice(0, 4)} … ${a.iban.slice(-4)}` : "—"}</td>
                 <td className="text-right font-medium whitespace-nowrap">{a.excluded ? <span className="text-xs text-slate-400">exclu</span> : eur(a.balance)}</td>
                 <td>
+                  {admin && !a.excluded ? (
+                    <AccountKindSelect accountId={a.id} value={a.kind} action={setAccountKind} />
+                  ) : (
+                    <span className="text-xs">{a.kind === "SEQUESTRE" ? "Séquestre" : a.kind === "PRET" ? "Prêt" : "Courant"}</span>
+                  )}
+                </td>
+                <td>
                   {admin ? (
                     <AccountCompanySelect
                       accountId={a.id}
@@ -255,7 +308,7 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
                 </td>
               </tr>
             ))}
-            {accounts.length === 0 && <tr><td colSpan={5} className="text-center text-slate-400 py-4">Aucun compte : connectez une banque dans Connexions.</td></tr>}
+            {accounts.length === 0 && <tr><td colSpan={6} className="text-center text-slate-400 py-4">Aucun compte : connectez une banque dans Connexions.</td></tr>}
           </tbody>
         </table>
       </section>
@@ -363,7 +416,7 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
               <tr key={tx.id}>
                 <td className="whitespace-nowrap">{fmt(tx.date)}</td>
                 <td>{tx.company.name}</td>
-                <td>{tx.account.name}</td>
+                <td>{tx.account.name}{tx.account.kind !== "COURANT" && <span className="ml-1 text-[10px] uppercase text-indigo-700">{tx.account.kind === "SEQUESTRE" ? "séquestre" : "prêt"}</span>}</td>
                 <td>{tx.label}{tx.invoice && <span className="ml-2 text-xs text-emerald-700">✓ {tx.invoice.number ?? tx.invoice.counterparty}</span>}</td>
                 <td className="text-xs text-slate-500">{tx.category}</td>
                 <td className={`text-right font-medium whitespace-nowrap ${tx.amount >= 0 ? "text-emerald-700" : "text-red-800"}`}>

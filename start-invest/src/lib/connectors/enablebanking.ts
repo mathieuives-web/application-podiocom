@@ -169,6 +169,7 @@ export async function syncEnableBanking(integration: { id: string; companyId: st
         provider: "BANQUE",
         externalId: a.uid,
         name: name ?? `Compte ${creds.bank}`,
+        kind: /d[ée]p[ôo]t.?vente|s[ée]questre|escrow|cantonn/i.test(name ?? "") ? "SEQUESTRE" : /pr[êe]t|cr[ée]dit|emprunt|loan/i.test(name ?? "") ? "PRET" : "COURANT",
         bank: creds.bank,
         iban,
         currency: a.currency ?? details?.currency ?? "EUR",
