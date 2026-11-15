@@ -7,6 +7,8 @@ import { syncStripe } from "./stripe";
 import { syncPennylane } from "./pennylane";
 import { syncShineMcp, shineMcpFresh, SHINE_MCP_URL, type ShineMcpCreds } from "./shine-mcp";
 import { syncEnableBanking, type BankCreds } from "./enablebanking";
+import { checkWhatsApp, whatsappVerifyToken, type WhatsAppCreds } from "./whatsapp";
+import { googleClient } from "./google";
 import { syncAutoCerfa, AUTOCERFA_DEFAULT_URL, type AutoCerfaCreds } from "./autocerfa";
 
 export const PROVIDERS: ProviderDef[] = [
@@ -76,6 +78,31 @@ export const PROVIDERS: ProviderDef[] = [
     docs: "À choisir pour La Fabrique Automobile. Première connexion : 2 à 5 minutes, le robot apprend le chemin vers les exports.",
     available: true,
   },
+  {
+    id: "GOOGLE",
+    name: "Google : Gmail + Drive",
+    kind: "Gestion",
+    description:
+      "Boîte mail et Drive de la société. Chaque matin, l'agent Secrétariat trie les e-mails (libellés : Factures, Clients, Banque, Administration...), archive ce qui est traité, signale l'urgent, et range le Drive (dossiers par année et par type). Il ne peut ni envoyer, ni supprimer.",
+    fields: [],
+    docs: "Bouton « Se connecter avec Google » pour chaque société",
+    available: true,
+    oauth: true,
+  },
+  {
+    id: "WHATSAPP",
+    name: "WhatsApp Business (un numéro par société)",
+    kind: "Gestion",
+    description:
+      "Les salariés envoient une photo ou un message (ticket de frais, pièce à commander, intervention faite) au numéro WhatsApp de leur société : l'IA lit, classe (frais / besoin / intervention), archive la photo chiffrée, répond « bien reçu » et tout apparaît dans « Terrain » pour les agents.",
+    fields: [
+      { name: "phoneNumberId", label: "Identifiant du numéro (Phone number ID)", placeholder: "123456789012345" },
+      { name: "accessToken", label: "Jeton d'accès permanent (utilisateur système)", secret: true },
+      { name: "appSecret", label: "Clé secrète de l'application Meta (App secret)", secret: true },
+    ],
+    docs: "Meta for Developers → votre application → WhatsApp → Configuration de l'API",
+    available: true,
+  },
 
   {
     id: "AUTRES",
@@ -104,7 +131,14 @@ export async function syncIntegration(integrationId: string, opts: { force?: boo
     } else if (integ.provider === "QONTO") result = await syncQonto(integ, creds as { login: string; secretKey: string });
     else if (integ.provider === "STRIPE") result = await syncStripe(integ, creds as { secretKey: string });
     else if (integ.provider === "PENNYLANE") result = await syncPennylane(integ, creds as { token: string });
-    else if (integ.provider === "AUTOCERFA") {
+    else if (integ.provider === "WHATSAPP") {
+      const r = await checkWhatsApp(creds as unknown as WhatsAppCreds);
+      await prisma.integration.update({ where: { id: integ.id }, data: { label: r.display_phone_number ?? integ.label, meta: JSON.stringify(r) } });
+      result = { accounts: 0, transactions: 0, invoices: 0 };
+    } else if (integ.provider === "GOOGLE") {
+      await googleClient(integ.id).then((g) => g.call("https://www.googleapis.com/oauth2/v3/userinfo"));
+      result = { accounts: 0, transactions: 0, invoices: 0 };
+    } else if (integ.provider === "AUTOCERFA") {
       const r = await syncAutoCerfa(integ, creds as unknown as AutoCerfaCreds, opts.force);
       if (r.skipped) return r; // déjà passé aujourd'hui
       result = r;
@@ -177,3 +211,5 @@ export const SHINE_READ_TOOLS = [
   "accounting_list_daybooks", "accounting_list_daybook_transactions", "accounting_get_daybook_transaction",
   "invoicing_list_vat_rate_rules", "setting_list_accounts", "setting_list_account_groups", "setting_list_currencies",
 ];
+
+export { whatsappVerifyToken };

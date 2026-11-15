@@ -55,23 +55,31 @@ model AuditLog {
 // ---------------------------------------------------------------------------
 
 model Company {
-  id            String   @id @default(cuid())
-  name          String
-  activity      String?
-  color         String   @default("#7f1d1d")
-  active        Boolean  @default(true)
+  id             String   @id @default(cuid())
+  name           String
+  activity       String?
+  color          String   @default("#7f1d1d")
+  active         Boolean  @default(true)
   // Relances automatiques des factures clients en retard (désactivées tant que non choisies)
-  autoReminders Boolean  @default(false)
-  createdAt     DateTime @default(now())
+  autoReminders  Boolean  @default(false)
+  // Présence en ligne (suivie par l'agent Site & réseaux de la société)
+  website        String?
+  instagram      String?
+  facebook       String?
+  tiktok         String?
+  googleBusiness String?
+  linkedin       String?
+  createdAt      DateTime @default(now())
 
-  bankAccounts BankAccount[]
-  transactions BankTransaction[]
-  invoices     Invoice[]
-  integrations Integration[]
-  documents    Document[]
-  statements   FinancialStatement[]
-  vehicles     Vehicle[]
-  employees    Employee[]
+  bankAccounts  BankAccount[]
+  transactions  BankTransaction[]
+  invoices      Invoice[]
+  integrations  Integration[]
+  documents     Document[]
+  statements    FinancialStatement[]
+  vehicles      Vehicle[]
+  employees     Employee[]
+  fieldRequests FieldRequest[]
 }
 
 model BankAccount {
@@ -358,6 +366,7 @@ model Employee {
   lastName           String    @default("")
   role               String? // poste
   email              String?
+  phone              String? // format international (33612345678) : reconnaît ses messages WhatsApp
   startDate          DateTime?
   active             Boolean   @default(true)
   grossSalary        Float? // salaire brut mensuel fixe
@@ -369,10 +378,11 @@ model Employee {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
-  bought      Vehicle[]    @relation("VehicleBuyer")
-  sold        Vehicle[]    @relation("VehicleSeller")
-  commissions Commission[]
-  leaves      Leave[]
+  fieldRequests FieldRequest[]
+  bought        Vehicle[]      @relation("VehicleBuyer")
+  sold          Vehicle[]      @relation("VehicleSeller")
+  commissions   Commission[]
+  leaves        Leave[]
 
   @@unique([companyId, firstName, lastName])
 }
@@ -408,4 +418,29 @@ model Leave {
   type       String   @default("CP") // CP | RTT | MALADIE | SANS_SOLDE | AUTRE
   note       String?
   createdAt  DateTime @default(now())
+}
+
+// ------------------------------------------------------------------ WhatsApp : demandes du terrain
+model FieldRequest {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  fromPhone  String
+  fromName   String?
+  messageId  String    @unique // identifiant WhatsApp (évite les doublons)
+  kind       String    @default("AUTRE") // FRAIS | BESOIN | INTERVENTION | AUTRE
+  text       String?
+  documentId String? // photo / PDF archivé chiffré
+  amount     Float?
+  merchant   String?
+  spentAt    DateTime?
+  vehicle    String? // véhicule ou client concerné si mentionné
+  summary    String? // résumé par l'IA
+  urgent     Boolean   @default(false)
+  status     String    @default("NOUVEAU") // NOUVEAU | TRAITE
+  createdAt  DateTime  @default(now())
+
+  @@index([companyId, createdAt])
 }

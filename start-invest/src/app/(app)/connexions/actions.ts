@@ -110,3 +110,19 @@ export async function cancelDirect(sid: string) {
   await cancelLive(sid, me.id).catch(() => undefined);
   redirect("/connexions");
 }
+
+const PRESENCE = ["website", "instagram", "facebook", "tiktok", "googleBusiness", "linkedin"] as const;
+
+/** Adresses du site et des réseaux sociaux d'une société (suivies par son agent Site & réseaux). */
+export async function setPresence(companyId: string, formData: FormData) {
+  const me = await requireAdmin();
+  const data: Record<string, string | null> = {};
+  for (const k of PRESENCE) {
+    let v = (formData.get(k) ?? "").toString().trim().slice(0, 300);
+    if (v && !/^https?:\/\//i.test(v) && !v.startsWith("@")) v = `https://${v}`;
+    data[k] = v || null;
+  }
+  const c = await prisma.company.update({ where: { id: companyId }, data });
+  await audit(me, "presence_en_ligne", c.name);
+  revalidatePath("/connexions");
+}

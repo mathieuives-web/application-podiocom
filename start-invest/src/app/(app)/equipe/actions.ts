@@ -19,7 +19,7 @@ export async function createEmployee(formData: FormData) {
   if (!companyId || !firstName) back("Prénom et société obligatoires.");
   const exists = await prisma.employee.findUnique({ where: { companyId_firstName_lastName: { companyId, firstName, lastName } } });
   if (exists) back(`${firstName} existe déjà.`);
-  await prisma.employee.create({ data: { companyId, firstName, lastName, role: s(formData.get("role")).slice(0, 80) || null } });
+  await prisma.employee.create({ data: { companyId, firstName, lastName, role: s(formData.get("role")).slice(0, 80) || null, phone: s(formData.get("phone")).replace(/\D/g, "").replace(/^0(\d{9})$/, "33$1") || null } });
   await audit(me, "salarie_cree", `${firstName} ${lastName}`);
   back(`${firstName} ajouté(e). Son agent personnel est créé dans le board. Déposez son contrat dans Archives pour ses règles de commission.`);
 }
@@ -47,6 +47,8 @@ export async function updateEmployee(employeeId: string, formData: FormData) {
       role: s(formData.get("role")).slice(0, 80) || null,
       leaveDaysPerYear: Number(s(formData.get("leaveDaysPerYear")).replace(",", ".")) || 25,
       active: formData.get("active") === "on",
+      phone: s(formData.get("phone")).replace(/\D/g, "").replace(/^0(\d{9})$/, "33$1") || null,
+      email: s(formData.get("email")).slice(0, 120) || null,
     },
   });
   await audit(me, "regles_commission_modifiees", `${e.firstName} ${e.lastName} : ${JSON.stringify(rules)}`);

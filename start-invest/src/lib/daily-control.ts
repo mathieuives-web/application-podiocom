@@ -76,6 +76,29 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
         }
       }
       log.push(`Rapports DAF : ${reports.length}`);
+
+      // Secrétariat : tri des e-mails, du Drive et des messages WhatsApp, pour chaque société connectée.
+      const connected = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "WHATSAPP"] }, status: { not: "ERROR" } }, select: { companyId: true } });
+      for (const c of companies.filter((x) => connected.some((i) => i.companyId === x.id))) {
+        const sec = agents.find((a) => a.slug.startsWith("secretariat-") && a.structure === c.name);
+        if (!sec) continue;
+        try {
+          const r = await executeAgent({ slug: sec.slug, kind: "DAILY", companyId: c.id, task: `Tri du ${date} pour ${c.name} : suis exactement ta procédure du matin, puis fais ton rapport.` });
+          reports.push(`### ${sec.title} (${c.name})\n${r.output}`);
+        } catch (e) {
+          log.push(`  ⚠ Secrétariat ${c.name} : ${(e as Error).message}`);
+        }
+      }
+      // Site & réseaux : un audit complet et le calendrier de la semaine, chaque lundi.
+      if (new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday") {
+        for (const c of companies.filter((x) => x.website || x.instagram || x.facebook || x.tiktok || x.googleBusiness)) {
+          const web = agents.find((a) => a.slug.startsWith("web-reseaux-") && a.structure === c.name);
+          if (!web) continue;
+          await executeAgent({ slug: web.slug, kind: "WEEKLY", companyId: c.id, task: `Revue hebdomadaire du ${date} pour ${c.name} : audit du site et de la présence en ligne, plan d'action classé par impact, et calendrier des publications de la semaine prêtes à copier-coller.` })
+            .then(() => log.push(`Site & réseaux ${c.name} : revue faite`))
+            .catch((e) => log.push(`  ⚠ Site & réseaux ${c.name} : ${(e as Error).message}`));
+        }
+      }
       if (reports.length) {
         await executeAgent({
           slug: "cfo",

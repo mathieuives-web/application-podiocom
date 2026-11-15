@@ -121,7 +121,7 @@ export default async function EquipePage({ searchParams }: { searchParams: Promi
                 <div className="flex justify-between gap-2">
                   <div>
                     <p className="font-medium">{e.firstName} {e.lastName}</p>
-                    <p className="text-xs text-slate-500">{[e.role, e.company.name, e.startDate && `depuis le ${e.startDate.toLocaleDateString("fr-FR")}`].filter(Boolean).join(" · ")}</p>
+                    <p className="text-xs text-slate-500">{[e.role, e.company.name, e.phone && `📱 ${e.phone}`, e.startDate && `depuis le ${e.startDate.toLocaleDateString("fr-FR")}`].filter(Boolean).join(" · ")}</p>
                   </div>
                   <Link href={`/agents?agent=${employeeAgentSlug(e)}`} className="text-xs underline whitespace-nowrap">Agent « {e.firstName} »</Link>
                 </div>
@@ -151,6 +151,8 @@ export default async function EquipePage({ searchParams }: { searchParams: Promi
                     <textarea name="rulesNote" defaultValue={e.rulesNote ?? ""} placeholder="Conditions particulières (paliers, objectifs, délai de versement...)" className="input text-xs w-full" rows={2} />
                     <div className="flex flex-wrap gap-2 items-center">
                       <label>Poste <input name="role" defaultValue={e.role ?? ""} className="input py-1 text-xs w-36" /></label>
+                      <label>Portable (WhatsApp) <input name="phone" defaultValue={e.phone ?? ""} placeholder="06 12 34 56 78" className="input py-1 text-xs w-32" /></label>
+                      <label>E-mail <input name="email" defaultValue={e.email ?? ""} className="input py-1 text-xs w-40" /></label>
                       <label>Congés / an <input name="leaveDaysPerYear" defaultValue={e.leaveDaysPerYear} className="input py-1 text-xs w-14" /></label>
                       <label className="flex items-center gap-1"><input type="checkbox" name="active" defaultChecked={e.active} /> actif</label>
                       <button className="btn-primary text-xs">Enregistrer</button>
@@ -184,6 +186,7 @@ export default async function EquipePage({ searchParams }: { searchParams: Promi
           <div><label className="label">Prénom *</label><input name="firstName" required className="input" /></div>
           <div><label className="label">Nom</label><input name="lastName" className="input" /></div>
           <div><label className="label">Poste</label><input name="role" className="input" placeholder="vendeur, acheteur..." /></div>
+          <div><label className="label">Portable (WhatsApp)</label><input name="phone" className="input" placeholder="06 12 34 56 78" /></div>
           <div>
             <label className="label">Société *</label>
             <select name="companyId" className="input" defaultValue={companies.find((c) => /fabrique automobile/i.test(c.name))?.id}>

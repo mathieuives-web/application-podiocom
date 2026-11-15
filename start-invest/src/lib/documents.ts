@@ -20,12 +20,13 @@ export const DOC_TYPES = {
   FACTURES: "Export de factures (CSV / Excel)",
   VEHICULES: "Export Auto Cerfa : stock / ventes de véhicules (Excel / CSV)",
   CONTRAT: "Contrat de travail d'un salarié (PDF)",
+  TERRAIN: "Photo / pièce du terrain (frais, besoin, intervention)",
   AUTRE: "Autre document",
 } as const;
 export type DocType = keyof typeof DOC_TYPES;
 
 const MAX_SIZE = 30 * 1024 * 1024;
-const ALLOWED = /\.(pdf|csv|txt|xls|xlsx)$/i;
+const ALLOWED = /\.(pdf|csv|txt|xls|xlsx|jpg|jpeg|png|webp|gif)$/i;
 
 function dataDir() {
   return path.join(process.env.DATA_DIR || path.join(process.cwd(), "data"), "documents");
@@ -59,7 +60,7 @@ export async function saveDocument(
   file: File,
   meta: { companyId: string; type: DocType; year?: number | null; accountId?: string | null; uploadedBy?: string | null }
 ) {
-  if (!ALLOWED.test(file.name)) throw new Error(`${file.name} : format non accepté (PDF, CSV, XLS, XLSX).`);
+  if (!ALLOWED.test(file.name)) throw new Error(`${file.name} : format non accepté (PDF, CSV, XLS, XLSX, photo JPG / PNG).`);
   if (file.size > MAX_SIZE) throw new Error(`${file.name} : fichier trop lourd (30 Mo maximum).`);
   const buf = Buffer.from(await file.arrayBuffer());
   if (/\.pdf$/i.test(file.name) && buf.subarray(0, 5).toString() !== "%PDF-") throw new Error(`${file.name} : ce n'est pas un vrai PDF.`);

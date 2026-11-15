@@ -6,6 +6,7 @@ import { cashStatement } from "@/lib/categorization";
 import { vehicleSummary, vehicleMargin, daysInStock } from "@/lib/vehicles";
 import { commissionStatement, currentMonth, employeeFile } from "@/lib/team";
 import { employeeAgentSlug } from "@/lib/agents";
+import { EXTRA_TOOL_NAMES, extraTools, runExtraTool } from "@/lib/agent-tools-extra";
 import { shineMcpServersFor, SHINE_READ_TOOLS } from "@/lib/connectors";
 
 // Moteur d'exécution du board : chaque agent tourne sur l'API Claude avec son fichier
@@ -407,7 +408,7 @@ function systemPrompt(agent: AgentDef, all: AgentDef[], memory: string | null) {
 ---
 Contexte du board d'agents :
 - Tu es « ${agent.title} » (${agent.slug}), structure : ${agent.structure}.${parent ? ` Tu rends compte à ${parent.title}.` : " Tu rends compte directement au fondateur."}
-- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents, flux_mensuels, compte_sequestre, compte_de_resultat, stock_vehicules, lister_vehicules, commissions_du_mois et fiche_salarie donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
+- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents, flux_mensuels, compte_sequestre, compte_de_resultat, stock_vehicules, lister_vehicules, commissions_du_mois, fiche_salarie, presence_en_ligne, analyser_site, lister_demandes_terrain (et selon ton rôle Gmail / Drive) donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
 ${reachable ? `- Tu peux déléguer une sous-question précise avec consulter_agent à :\n${reachable}\n- Ne délègue que ce qui apporte vraiment quelque chose : fais toi-même ce qui est simple.` : "- Tu n'as pas d'équipe à consulter : fais le travail toi-même."}
 - Réponds en français, de façon concise et actionnable, au format Markdown. Termine par « À faire par le fondateur » si une action humaine est nécessaire.
 - Tu as une MÉMOIRE personnelle qui persiste entre tes passages. Quand tu apprends quelque chose de durable et utile
@@ -451,6 +452,7 @@ export async function executeAgent(opts: {
     const reachable = depth < MAX_DEPTH - 1 ? reachableFrom(agent, all) : [];
     const tools: Anthropic.Beta.BetaToolUnion[] = [
       ...DATA_TOOLS,
+      ...extraTools(agent),
       {
         name: "mettre_a_jour_memoire",
         description:
@@ -558,7 +560,7 @@ export async function executeAgent(opts: {
               });
               return { type: "tool_result", tool_use_id: tu.id, content: sub.output || "(pas de réponse)" };
             }
-            const data = await runDataTool(tu.name, input, { agentSlug: agent.slug });
+            const data = EXTRA_TOOL_NAMES.has(tu.name) ? await runExtraTool(tu.name, input, agent) : await runDataTool(tu.name, input, { agentSlug: agent.slug });
             return { type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(data).slice(0, 60000) };
           } catch (e) {
             return { type: "tool_result", tool_use_id: tu.id, content: `Erreur : ${(e as Error).message}`, is_error: true };

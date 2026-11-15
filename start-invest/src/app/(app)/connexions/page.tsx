@@ -3,8 +3,10 @@ import { requireAdmin } from "@/lib/session";
 import { PROVIDERS } from "@/lib/connectors";
 import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
 import { bankConfigured, bankRedirectUri, listBanks } from "@/lib/connectors/enablebanking";
+import { googleConfigured, googleRedirectUri } from "@/lib/connectors/google";
+import { whatsappVerifyToken } from "@/lib/connectors/whatsapp";
 import BankConnect from "./BankConnect";
-import { addIntegration, syncNow, removeIntegration, startDirect } from "./actions";
+import { addIntegration, syncNow, removeIntegration, startDirect, setPresence } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +84,29 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
         </table>
       </section>
 
+      <section className="card space-y-3">
+        <div>
+          <h2 className="font-semibold">Sites et réseaux sociaux</h2>
+          <p className="text-xs text-slate-500">L&apos;agent « Site &amp; réseaux » de chaque société les audite chaque lundi et prépare le plan d&apos;action et les publications de la semaine.</p>
+        </div>
+        {companies.map((c) => (
+          <form key={c.id} action={setPresence.bind(null, c.id)} className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 items-end text-xs">
+            <p className="font-medium text-sm col-span-2 md:col-span-4 xl:col-span-1">{c.name}</p>
+            {([
+              ["website", "Site internet", "www..."],
+              ["googleBusiness", "Fiche Google", "lien Google Maps"],
+              ["instagram", "Instagram", "@compte"],
+              ["facebook", "Facebook", "lien"],
+              ["tiktok", "TikTok", "@compte"],
+              ["linkedin", "LinkedIn", "lien"],
+            ] as const).map(([k, label, ph]) => (
+              <label key={k}>{label}<input name={k} defaultValue={c[k] ?? ""} placeholder={ph} className="input py-1 text-xs" /></label>
+            ))}
+            <button className="btn-secondary text-xs">Enregistrer</button>
+          </form>
+        ))}
+      </section>
+
       {companies.length === 0 && (
         <p className="card text-sm bg-amber-50 border-amber-200 text-amber-900">Ajoutez d&apos;abord une société dans Finances.</p>
       )}
@@ -93,6 +118,20 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
               <p className="text-xs uppercase tracking-wider text-slate-400">{p.kind}</p>
               <h3 className="font-semibold">{p.name}</h3>
               <p className="text-sm text-slate-600">{p.description}</p>
+              {p.id === "WHATSAPP" && (
+                <details className="text-xs text-slate-600 mt-2">
+                  <summary className="cursor-pointer underline">Mise en place (une fois, 20 minutes)</summary>
+                  <ol className="list-decimal pl-4 space-y-1 mt-2">
+                    <li>Une ligne par société, jamais utilisée sur WhatsApp (puce ou numéro virtuel). Elle doit pouvoir recevoir un SMS ou un appel une fois.</li>
+                    <li>Sur <a className="underline" href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer">developers.facebook.com</a> : Créer une application → « Business » → ajouter le produit <strong>WhatsApp</strong>, rattachée au compte Meta Business de Start Invest.</li>
+                    <li>WhatsApp → Configuration de l&apos;API : <strong>Ajouter un numéro</strong> pour chaque société (nom affiché : celui de la société).</li>
+                    <li>WhatsApp → Configuration → Webhook : URL de rappel <code className="break-all">{(process.env.NEXTAUTH_URL ?? "").replace(/\/$/, "")}/api/whatsapp</code>, jeton de vérification <code className="break-all">{whatsappVerifyToken()}</code>, puis abonnez le champ <strong>messages</strong>.</li>
+                    <li>Business Settings → Utilisateurs système → créer un utilisateur « Start Invest » (admin), lui donner l&apos;application et le compte WhatsApp, <strong>Générer un jeton</strong> sans expiration avec les droits whatsapp_business_messaging et whatsapp_business_management.</li>
+                    <li>Ici, pour chaque société : l&apos;identifiant du numéro (Phone number ID), le jeton, et la clé secrète de l&apos;application (Paramètres → Général → Clé secrète).</li>
+                    <li>Dans Équipe, renseignez le numéro de portable de chaque salarié : ses messages lui seront attribués.</li>
+                  </ol>
+                </details>
+              )}
             </div>
             {p.id === "BANQUE" ? (
               bankConfigured() ? (
@@ -121,6 +160,29 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                   </li>
                   <li>Cliquez <strong>Activate by linking accounts</strong> et connectez vos comptes (Shine...) : c&apos;est gratuit pour vos propres comptes.</li>
                   <li>Dans Railway, ajoutez <code>ENABLE_BANKING_APP_ID</code> (le nom du fichier sans .pem) et <code>ENABLE_BANKING_PRIVATE_KEY</code> (le contenu du fichier .pem), puis Deploy.</li>
+                </ol>
+              )
+            ) : p.id === "GOOGLE" ? (
+              googleConfigured() ? (
+                <ul className="space-y-2">
+                  {companies.map((c) => {
+                    const connected = integrations.filter((i) => i.provider === "GOOGLE" && i.companyId === c.id);
+                    return (
+                      <li key={c.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span>{c.name}{connected.length > 0 && <span className="block text-xs text-emerald-700">{connected.map((i) => i.label).join(", ")}</span>}</span>
+                        <a href={`/api/google/connect?companyId=${c.id}`} className="btn-secondary text-xs">{connected.length ? "Ajouter une adresse" : "Se connecter avec Google"}</a>
+                      </li>
+                    );
+                  })}
+                  <li className="text-xs text-slate-500">Cochez bien Gmail ET Drive sur l&apos;écran Google. Plusieurs adresses par société possibles.</li>
+                </ul>
+              ) : (
+                <ol className="text-xs text-slate-600 list-decimal pl-4 space-y-1">
+                  <li>Sur <a className="underline" href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">console.cloud.google.com</a>, créez un projet « Start Invest ».</li>
+                  <li>Activez les API <strong>Gmail API</strong> et <strong>Google Drive API</strong> (menu API et services → Bibliothèque).</li>
+                  <li>Écran de consentement OAuth : type <strong>Externe</strong> (ou <strong>Interne</strong> si vous avez Google Workspace), ajoutez votre adresse, puis <strong>Publier l&apos;application</strong> (sinon l&apos;accès expire tous les 7 jours).</li>
+                  <li>Identifiants → Créer → <strong>ID client OAuth</strong> → Application Web, URI de redirection : <code className="break-all">{googleRedirectUri()}</code></li>
+                  <li>Dans Railway, ajoutez <code>GOOGLE_CLIENT_ID</code> et <code>GOOGLE_CLIENT_SECRET</code>, puis Deploy.</li>
                 </ol>
               )
             ) : p.oauth ? (
