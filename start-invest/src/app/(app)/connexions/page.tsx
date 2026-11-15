@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/session";
 import { PROVIDERS } from "@/lib/connectors";
 import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
 import { bankConfigured, bankRedirectUri, listBanks } from "@/lib/connectors/enablebanking";
+import BankConnect from "./BankConnect";
 import { addIntegration, syncNow, removeIntegration } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -95,18 +96,13 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                   {companies.map((c) => {
                     const connected = integrations.filter((i) => i.provider === "BANQUE" && i.companyId === c.id);
                     return (
-                      <form key={c.id} action="/api/banque/connect" method="GET" className="flex flex-wrap items-center gap-2 text-sm">
-                        <input type="hidden" name="companyId" value={c.id} />
+                      <div key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
                         <span className="w-44 shrink-0">
                           {c.name}
                           {connected.length > 0 && <span className="block text-xs text-emerald-700">{connected.map((i) => i.label).join(", ")}</span>}
                         </span>
-                        <select name="bank" className="input py-1 text-xs flex-1 min-w-40" defaultValue={connected[0]?.label ?? ""} required>
-                          <option value="">Banque…</option>
-                          {banks.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
-                        </select>
-                        <button className="btn-primary text-xs">Connecter la banque</button>
-                      </form>
+                        <BankConnect companyId={c.id} banks={banks.map((b) => b.name)} initial={connected[0]?.label ?? ""} />
+                      </div>
                     );
                   })}
                   <p className="text-xs text-slate-500">Une société avec plusieurs banques : connectez-les l&apos;une après l&apos;autre.</p>
