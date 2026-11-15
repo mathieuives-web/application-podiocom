@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { PROVIDERS } from "@/lib/connectors";
-import { shineConfigured } from "@/lib/connectors/shine";
+import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
 import { addIntegration, syncNow, removeIntegration } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -79,8 +79,12 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
               <p className="text-sm text-slate-600">{p.description}</p>
             </div>
             {p.oauth ? (
-              shineConfigured() ? (
+              shineMcpAvailable() ? (
                 <ul className="space-y-2">
+                  <li className="text-xs text-slate-500">
+                    Connectez-vous avec l&apos;identifiant Shine de chaque société (offre Start ou Plus). À refaire tous les 30 jours :
+                    l&apos;application vous préviendra.
+                  </li>
                   {companies.map((c) => {
                     const connected = integrations.find((i) => i.provider === p.id && i.companyId === c.id);
                     return (
@@ -94,16 +98,7 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                   })}
                 </ul>
               ) : (
-                <ol className="text-xs text-slate-600 list-decimal pl-4 space-y-1">
-                  <li>
-                    Demander l&apos;accès Shine Connect (une seule fois pour le groupe) :{" "}
-                    <a className="underline" href="https://tally.so/r/3qAy69" target="_blank" rel="noreferrer">formulaire Shine</a>. Demandez les accès
-                    <code> bank:accounts:read</code>, <code>bank:transactions:read</code> et <code>invoices:read</code>, avec l&apos;adresse de retour{" "}
-                    <code>https://votre-domaine/api/shine/callback</code>.
-                  </li>
-                  <li>Shine envoie un <code>client_id</code> et un <code>client_secret</code> : ajoutez-les sur le serveur (<code>SHINE_CLIENT_ID</code>, <code>SHINE_CLIENT_SECRET</code>).</li>
-                  <li>Un bouton « Se connecter avec Shine » apparaît ici pour chaque société.</li>
-                </ol>
+                <p className="text-xs text-slate-600">Disponible dès que le site a son adresse publique (NEXTAUTH_URL).</p>
               )
             ) : p.available ? (
               <form action={addIntegration} className="space-y-2">

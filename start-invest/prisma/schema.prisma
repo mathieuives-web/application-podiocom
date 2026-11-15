@@ -157,6 +157,7 @@ model Integration {
   status      String    @default("PENDING") // PENDING | OK | ERROR
   lastSyncAt  DateTime?
   lastError   String?
+  meta        String? // informations techniques non sensibles (outils disponibles, champs reçus)
   createdAt   DateTime  @default(now())
 
   bankAccounts BankAccount[]
@@ -271,4 +272,10 @@ model AgentMemory {
   agent     String   @unique
   content   String
   updatedAt DateTime @updatedAt
+}
+
+// Réglages techniques de l'application (ex. identifiant d'application auprès de Shine)
+model AppSetting {
+  key   String @id
+  value String
 }

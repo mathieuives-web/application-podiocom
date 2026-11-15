@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { encryptJson } from "@/lib/crypto";
-import { shineExchangeCode } from "@/lib/connectors/shine";
+import { shineMcpExchange } from "@/lib/connectors/shine-mcp";
 import { syncIntegration } from "@/lib/connectors";
 
 // Retour de Shine après autorisation : échange le code contre les jetons, enregistre la connexion, synchronise.
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const saved = jar.get("shine_oauth")?.value;
   jar.delete({ name: "shine_oauth", path: "/api/shine" });
   if (url.searchParams.get("error")) return back("Connexion Shine annulée.");
-  let expected: { state: string; companyId: string } | null = null;
+  let expected: { state: string; companyId: string; verifier: string } | null = null;
   try {
     expected = saved ? JSON.parse(saved) : null;
   } catch {
@@ -34,7 +34,7 @@ export async function GET(req: Request) {
 
   let msg: string;
   try {
-    const creds = await shineExchangeCode(code);
+    const creds = await shineMcpExchange(code, expected.verifier);
     // Une seule connexion Shine par société : on remplace l'ancienne.
     const old = await prisma.integration.findFirst({ where: { companyId: expected.companyId, provider: "SHINE" } });
     const integ = old

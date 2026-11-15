@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { agentsConfigured } from "@/lib/agent-runtime";
-import { shineConfigured } from "@/lib/connectors/shine";
+import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
 import { smtpConfigured } from "@/lib/reminders";
 import { loadAgents } from "@/lib/agents";
 
@@ -55,7 +55,7 @@ export default async function MiseEnRoutePage() {
   ];
   const services: Check[] = [
     { ok: agentsConfigured(), label: "Agents IA activés (ANTHROPIC_API_KEY)", help: "Clé à créer sur console.anthropic.com, avec une limite de dépense mensuelle." },
-    { ok: shineConfigured(), label: "Accès Shine Connect configuré (SHINE_CLIENT_ID / SHINE_CLIENT_SECRET)", help: "Adresse de retour à déclarer chez Shine : " + (url ? `${url.replace(/\/$/, "")}/api/shine/callback` : "https://votre-domaine/api/shine/callback") },
+    { ok: shineMcpAvailable(), label: "Connexion Shine disponible (identifiant Shine de chaque société, offre Start ou Plus)", help: "Le site doit connaître son adresse publique (NEXTAUTH_URL)." },
     { ok: smtpConfigured() ? true : "warn", label: "Envoi des relances par e-mail (SMTP)", help: "Sans SMTP, les relances sont préparées en brouillon. Si Shine Facture relance déjà vos clients, ce n'est pas bloquant." },
     { ok: process.env.SCHEDULER !== "off", label: `Contrôle automatique chaque matin à ${hour} h (heure de Paris)`, help: "Retirez SCHEDULER=off, ou appelez /api/cron/daily depuis un planificateur." },
     {

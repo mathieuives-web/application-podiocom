@@ -5,7 +5,7 @@ import type { ProviderDef, SyncResult } from "./types";
 import { syncQonto } from "./qonto";
 import { syncStripe } from "./stripe";
 import { syncPennylane } from "./pennylane";
-import { syncShine, shineFreshCreds, type ShineCreds } from "./shine";
+import { syncShineMcp, shineMcpFresh, SHINE_MCP_URL, type ShineMcpCreds } from "./shine-mcp";
 
 export const PROVIDERS: ProviderDef[] = [
   {
@@ -13,7 +13,7 @@ export const PROVIDERS: ProviderDef[] = [
     name: "Shine (compte pro + Shine Facture)",
     kind: "Banque",
     description:
-      "Comptes Shine, toutes les opérations, et les factures émises avec Shine Facture (montants, échéances, payées ou non). Connexion officielle Shine Connect, en lecture seule.",
+      "Factures clients, factures fournisseurs, lignes bancaires et grand livre de Shine Facture, via le serveur officiel de Shine pour les assistants IA (MCP). Connexion avec votre identifiant Shine habituel, en lecture seule. Offre Shine payante (Start ou Plus) requise ; connexion à renouveler tous les 30 jours.",
     fields: [],
     docs: "Bouton « Se connecter avec Shine » pour chaque société",
     available: true,
@@ -76,11 +76,11 @@ export async function syncIntegration(integrationId: string): Promise<SyncResult
   try {
     let result: SyncResult;
     if (integ.provider === "SHINE") {
-      const fresh = await shineFreshCreds(creds as unknown as ShineCreds);
+      const fresh = await shineMcpFresh(creds as unknown as ShineMcpCreds);
       if (fresh.refreshed) {
         await prisma.integration.update({ where: { id: integ.id }, data: { credentials: encryptJson(fresh.creds) } });
       }
-      result = await syncShine(integ, fresh.creds);
+      result = await syncShineMcp(integ, fresh.creds);
     } else if (integ.provider === "QONTO") result = await syncQonto(integ, creds as { login: string; secretKey: string });
     else if (integ.provider === "STRIPE") result = await syncStripe(integ, creds as { secretKey: string });
     else if (integ.provider === "PENNYLANE") result = await syncPennylane(integ, creds as { token: string });
@@ -113,3 +113,40 @@ export async function syncAll() {
   }
   return results;
 }
+
+/**
+ * Serveurs Shine (MCP) à donner aux agents pour interroger Shine en direct, une entrée par société
+ * connectée. Les jetons sont renouvelés si besoin. Une société dont la connexion a expiré est ignorée.
+ */
+export async function shineMcpServersFor(companyIds: string[]) {
+  const integs = await prisma.integration.findMany({
+    where: { provider: "SHINE", status: "OK", companyId: { in: companyIds } },
+    include: { company: { select: { name: true } } },
+  });
+  const servers: { name: string; company: string; url: string; token: string }[] = [];
+  for (const i of integs) {
+    try {
+      const fresh = await shineMcpFresh(decryptJson<ShineMcpCreds>(i.credentials));
+      if (fresh.refreshed) await prisma.integration.update({ where: { id: i.id }, data: { credentials: encryptJson(fresh.creds) } });
+      const slug = i.company.name.normalize("NFD").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_|_$/g, "").toLowerCase();
+      servers.push({ name: `shine_${slug}`.slice(0, 60), company: i.company.name, url: SHINE_MCP_URL, token: fresh.creds.accessToken });
+    } catch (e) {
+      await prisma.integration.update({ where: { id: i.id }, data: { status: "ERROR", lastError: (e as Error).message.slice(0, 500) } });
+    }
+  }
+  return servers;
+}
+
+// Outils Shine en LECTURE uniquement (aucune création ni modification de brouillon par les agents).
+export const SHINE_READ_TOOLS = [
+  "invoicing_search_invoices", "invoicing_get_invoice", "invoicing_get_invoice_summary",
+  "invoicing_search_quotes", "invoicing_get_quote", "invoicing_get_quote_summary",
+  "invoicing_search_credit_notes", "invoicing_get_credit_note",
+  "customer_list_contacts", "customer_find_contact", "invoicing_list_products",
+  "expenses_list_bills", "expenses_get_bill", "expenses_get_bill_summary",
+  "invoicing_list_unhandled_attachments", "invoicing_get_attachment", "invoicing_get_attachment_summary",
+  "bank_list_bank_lines", "bank_get_bank_lines_summary", "bank_list_bank_line_matches",
+  "accounting_list_transactions", "accounting_get_transaction", "accounting_list_postings",
+  "accounting_list_daybooks", "accounting_list_daybook_transactions", "accounting_get_daybook_transaction",
+  "invoicing_list_vat_rate_rules", "setting_list_accounts", "setting_list_account_groups", "setting_list_currencies",
+];

@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/prisma";
 import { loadAgents, reachableFrom, type AgentDef } from "@/lib/agents";
 import { financeSummary, invoiceStatus } from "@/lib/finance";
+import { shineMcpServersFor, SHINE_READ_TOOLS } from "@/lib/connectors";
 
 // Moteur d'exécution du board : chaque agent tourne sur l'API Claude avec son fichier
 // .claude/agents/<slug>.md comme prompt système, des outils en LECTURE SEULE sur les
@@ -350,6 +351,23 @@ export async function executeAgent(opts: {
       },
     ];
     const memory = (await prisma.agentMemory.findUnique({ where: { agent: agent.slug } }))?.content ?? null;
+
+    // Accès direct à Shine (lecture seule) : la société de l'agent, ou tout le groupe pour la direction.
+    const companies = await prisma.company.findMany({ where: { active: true }, select: { id: true, name: true } });
+    const groupWide = ["ceo", "cfo", "flux-holding"].includes(agent.slug);
+    const scope = groupWide ? companies : companies.filter((c) => c.name === agent.structure);
+    const shine = scope.length ? await shineMcpServersFor(scope.map((c) => c.id)) : [];
+    for (const srv of shine) {
+      tools.push({
+        type: "mcp_toolset",
+        mcp_server_name: srv.name,
+        default_config: { enabled: false },
+        configs: Object.fromEntries(SHINE_READ_TOOLS.map((t) => [t, { enabled: true }])),
+      });
+    }
+    const shineNote = shine.length
+      ? `\n- Tu as un accès DIRECT à Shine (lecture seule) : ${shine.map((x) => `serveur ${x.name} = ${x.company}`).join(" ; ")}. Utilise-le pour les factures clients et fournisseurs, les lignes bancaires et le grand livre à jour.`
+      : "";
     if (reachable.length) {
       tools.push({
         name: "consulter_agent",
@@ -378,12 +396,13 @@ export async function executeAgent(opts: {
       const response = await anthropic().beta.messages.create({
         model: MODELS[agent.model] ?? MODELS.opus,
         max_tokens: 16000,
-        system: systemPrompt(agent, all, memory),
+        system: systemPrompt(agent, all, memory) + shineNote,
         tools,
         messages,
         output_config: { effort: depth === 0 ? "high" : "medium" },
-        betas: ["server-side-fallback-2026-07-01"],
+        betas: ["server-side-fallback-2026-07-01", ...(shine.length ? ["mcp-client-2025-11-20" as const] : [])],
         fallbacks: "default",
+        ...(shine.length ? { mcp_servers: shine.map((x) => ({ type: "url" as const, name: x.name, url: x.url, authorization_token: x.token })) } : {}),
       });
 
       const text = response.content

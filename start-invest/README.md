@@ -91,7 +91,6 @@ nouvelle version, droits du volume réglés automatiquement.
    volume, tout est effacé à chaque déploiement. Activez les sauvegardes du volume.
 4. **Variables** → ajoutez (valeurs saisies uniquement dans Railway) :
    - `ANTHROPIC_API_KEY` — clé Claude (console.anthropic.com), avec une limite de dépense ;
-   - `SHINE_CLIENT_ID` et `SHINE_CLIENT_SECRET` — vos accès Shine Connect ;
    - facultatif : `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` pour envoyer les relances.
 5. Attendez le déploiement, ouvrez l'adresse, connectez-vous (`admin@start-invest.fr` /
    `startinvest2026`), puis suivez la page **Mise en route**.
@@ -107,16 +106,14 @@ définissez alors `NEXTAUTH_URL=https://votre-domaine` (et `AUTH_SECRET` si vous
 
 ## Brancher Shine
 
-1. Demander l'accès Shine Connect (une fois pour tout le groupe) via le formulaire
-   https://tally.so/r/3qAy69 — accès demandés : `bank:accounts:read`, `bank:transactions:read`,
-   `invoices:read` ; adresse de retour : `https://votre-domaine/api/shine/callback`.
-2. Ajouter sur le serveur `SHINE_CLIENT_ID` et `SHINE_CLIENT_SECRET` reçus de Shine.
-3. Dans *Connexions*, cliquer « Se connecter avec Shine » pour chaque société et accepter avec le compte
-   Shine de la société.
+Shine se connecte via son serveur officiel pour assistants IA (MCP, Shine Facture) : aucune clé à
+demander à Shine. Dans *Connexions*, cliquez « Se connecter avec Shine » pour chaque société et
+connectez-vous avec l'identifiant Shine de la société (offre Start ou Plus requise). La connexion
+dure 30 jours, puis il faut la refaire (la page Mise en route le signale).
 
-Les factures Shine Facture dont la relance Shine est activée ne sont pas relancées une deuxième fois par
-l'application (pas de double relance). Le montant TTC est recalculé à partir des lignes de la facture et
-l'échéance à partir du délai de paiement.
+- Synchronisation vers Finances : factures clients, factures fournisseurs, lignes bancaires.
+- Les directeurs financiers, le CFO et le CEO interrogent aussi Shine **en direct**, avec les seuls
+  outils de lecture (aucune création ni modification dans Shine).
 
 ## Contrôle quotidien et relances
 
