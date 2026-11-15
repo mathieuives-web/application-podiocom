@@ -56,7 +56,13 @@ export async function uploadDocuments(formData: FormData) {
 export async function reprocessDocument(id: string) {
   const me = await requireAdmin();
   await audit(me, "document_relu", id);
-  after(() => processDocument(id));
+  // Statut visible tout de suite ; la page se rafraîchit seule tant que la lecture est en cours.
+  const doc = await prisma.document.update({ where: { id }, data: { status: "PENDING", error: null, summary: null } });
+  after(async () => {
+    await processDocument(id);
+    const done = await prisma.document.findUnique({ where: { id } });
+    if (done?.status === "DONE" && doc.type !== "AUTRE") await runFullAnalysis(doc.companyId, me.id).catch((e) => console.error("[analyse]", e));
+  });
   revalidatePath("/archives");
 }
 
