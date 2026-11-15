@@ -37,6 +37,8 @@ if [ -z "$NEXTAUTH_URL" ] && [ -n "$RAILWAY_PUBLIC_DOMAIN" ]; then
   export NEXTAUTH_URL="https://$RAILWAY_PUBLIC_DOMAIN"
 fi
 export AUTH_TRUST_HOST="${AUTH_TRUST_HOST:-true}"
+# Écoute sur toutes les interfaces (Railway/Docker définissent HOSTNAME = nom du conteneur).
+export HOSTNAME=0.0.0.0
 export DATABASE_URL="file:$DATA/dev.db"
 
 # Base de données : création au premier démarrage, puis mise à jour du schéma (sans perte de données).
