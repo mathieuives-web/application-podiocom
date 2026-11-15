@@ -6,6 +6,8 @@ import { z } from "zod";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { prisma } from "@/lib/prisma";
 import { categorize, autoReconcile } from "@/lib/finance";
+import { importVehicleSheet } from "@/lib/vehicles";
+import { ContractSchema, CONTRACT_INSTRUCTION, computeCommissions } from "@/lib/team";
 import { parseStatementBuffer, readSheet, parseAmount, parseDate, type ParsedLine } from "@/lib/statement-import";
 
 // Archives : bilans, relevés bancaires et exports de factures.
@@ -16,6 +18,8 @@ export const DOC_TYPES = {
   BILAN: "Bilan / liasse fiscale / compte de résultat",
   RELEVE: "Relevé bancaire",
   FACTURES: "Export de factures (CSV / Excel)",
+  VEHICULES: "Export Auto Cerfa : stock / ventes de véhicules (Excel / CSV)",
+  CONTRAT: "Contrat de travail d'un salarié (PDF)",
   AUTRE: "Autre document",
 } as const;
 export type DocType = keyof typeof DOC_TYPES;
@@ -315,6 +319,34 @@ export async function processDocument(id: string) {
       }
       const matched = await autoReconcile(doc.companyId);
       summary = `${n} facture(s) importée(s) ou mises à jour, ${matched} rapprochée(s) avec la banque.`;
+    } else if (doc.type === "VEHICULES") {
+      if (isPdf) throw new Error("Déposez l'export Auto Cerfa en Excel ou CSV (menu Stock → Export Excel, ou export des ventes / export comptable).");
+      const r = await importVehicleSheet(doc.companyId, readSheet(content, doc.fileName, doc.mime), doc.fileName);
+      const c = await computeCommissions(doc.companyId);
+      summary = `${r.created} véhicule(s) ajouté(s), ${r.updated} mis à jour. Commissions recalculées (${c.changed} modifiée(s)).${r.unknownStaff.length ? ` Salariés non reconnus : ${r.unknownStaff.slice(0, 10).join(", ")} — déposez leur contrat ou créez-les dans Équipe, puis relisez ce fichier.` : ""}`;
+    } else if (doc.type === "CONTRAT") {
+      if (!isPdf) throw new Error("Déposez le contrat de travail en PDF.");
+      const r = await extract(content, ContractSchema, CONTRACT_INSTRUCTION);
+      const rules = Object.fromEntries(Object.entries(r.commissions).filter(([, v]) => v));
+      const startDate = r.date_entree ? parseDate(r.date_entree) : null;
+      const data = {
+        role: r.poste,
+        startDate,
+        grossSalary: r.salaire_brut_mensuel,
+        leaveDaysPerYear: r.conges_jours_par_an ?? 25,
+        rules: JSON.stringify(rules),
+        rulesNote: r.conditions,
+        contractDocumentId: doc.id,
+      };
+      const firstName = r.prenom.trim().replace(/^./, (x) => x.toUpperCase());
+      const lastName = (r.nom ?? "").trim().toUpperCase();
+      const emp = await prisma.employee.upsert({
+        where: { companyId_firstName_lastName: { companyId: doc.companyId, firstName, lastName } },
+        update: data,
+        create: { ...data, companyId: doc.companyId, firstName, lastName },
+      });
+      await computeCommissions(doc.companyId);
+      summary = `Salarié ${emp.firstName} ${emp.lastName} : ${Object.keys(rules).length} règle(s) de commission (${Object.keys(rules).join(", ") || "aucune"}). ${r.conditions}`;
     }
     await prisma.document.update({ where: { id }, data: { status: "DONE", summary } });
   } catch (e) {

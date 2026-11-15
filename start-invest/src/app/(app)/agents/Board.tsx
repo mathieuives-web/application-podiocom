@@ -103,11 +103,11 @@ function twoLines(title: string): string[] {
 const fmtDate = (s: string) =>
   new Date(s).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-export default function Board({ agents, runs, configured, canConvoke }: { agents: Agent[]; runs: Run[]; configured: boolean; canConvoke: boolean }) {
+export default function Board({ agents, runs, configured, canConvoke, initialSelected = null }: { agents: Agent[]; runs: Run[]; configured: boolean; canConvoke: boolean; initialSelected?: string | null }) {
   const router = useRouter();
   const nodes = useMemo(() => layout(agents), [agents]);
   const byId = useMemo(() => new Map(nodes.map((n) => [n.slug, n])), [nodes]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initialSelected && agents.some((a) => a.slug === initialSelected) ? initialSelected : null);
   const [openRun, setOpenRun] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [view, setView] = useState(VIEW);

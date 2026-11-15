@@ -46,7 +46,7 @@ export async function uploadDocuments(formData: FormData) {
   after(async () => {
     for (const id of queued) await processDocument(id);
     // Dès que les documents sont lus, le directeur financier de la société analyse tout l'historique.
-    if (queued.length) await runFullAnalysis(companyId, me.id).catch((e) => console.error("[analyse]", e));
+    if (queued.length && type !== "CONTRAT") await runFullAnalysis(companyId, me.id).catch((e) => console.error("[analyse]", e));
   });
   revalidatePath("/archives");
   const msg = `${queued.length} document(s) déposé(s) et en cours de lecture.${problems.length ? " " + problems.join(" · ") : ""}`;
@@ -61,7 +61,7 @@ export async function reprocessDocument(id: string) {
   after(async () => {
     await processDocument(id);
     const done = await prisma.document.findUnique({ where: { id } });
-    if (done?.status === "DONE" && doc.type !== "AUTRE") await runFullAnalysis(doc.companyId, me.id).catch((e) => console.error("[analyse]", e));
+    if (done?.status === "DONE" && !["AUTRE", "CONTRAT"].includes(doc.type)) await runFullAnalysis(doc.companyId, me.id).catch((e) => console.error("[analyse]", e));
   });
   revalidatePath("/archives");
 }

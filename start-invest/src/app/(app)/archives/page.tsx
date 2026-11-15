@@ -90,6 +90,8 @@ export default async function ArchivesPage({ searchParams }: { searchParams: Pro
             <strong>Relevés</strong> (PDF ou CSV/Excel) : les opérations sont importées dans le compte choisi, sans doublon avec Shine.{" "}
             Pas encore de compte pour une banque ? Créez-le dans{" "}
             <Link href="/finances" className="underline">Finances → Ajouter un compte bancaire</Link>.{" "}
+            <strong>Export Auto Cerfa</strong> (Excel) : stock, ventes ou export comptable — véhicules, frais, prix, vendeurs ; les marges et commissions sont recalculées.{" "}
+            <strong>Contrat de travail</strong> (PDF) : l&apos;IA lit les règles de commission du salarié (modifiables dans Équipe).{" "}
             <strong>Factures</strong> : export CSV/Excel de n&apos;importe quel logiciel (colonnes Client, Montant TTC, et si possible Numéro, Date, Échéance, Statut, E-mail).
           </p>
         </form>

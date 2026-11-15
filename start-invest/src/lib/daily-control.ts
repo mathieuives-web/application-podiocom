@@ -32,6 +32,24 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
       const cat = await aiCategorize().catch((e) => ({ learned: 0, applied: 0, error: (e as Error).message }));
       log.push(`Classement comptable : ${cat.learned} nouveau(x) libellé(s), ${cat.applied} opération(s) classée(s)`);
     }
+    const { computeCommissions, previousMonth } = await import("@/lib/team");
+    const com = await computeCommissions();
+    log.push(`Commissions : ${com.computed} calculée(s), ${com.changed} mise(s) à jour`);
+    if (day.endsWith("-01") && agentsConfigured()) {
+      const m = previousMonth();
+      const agents = await loadAgents();
+      const withStaff = await prisma.company.findMany({ where: { active: true, employees: { some: { active: true } } } });
+      for (const c of withStaff) {
+        const boss = agents.find((a) => a.slug.startsWith("directeur-ventes-") && a.structure === c.name) ?? agents.find((a) => a.slug.startsWith("dg-") && a.structure === c.name);
+        if (!boss) continue;
+        await executeAgent({
+          slug: boss.slug,
+          kind: "COMMISSIONS",
+          companyId: c.id,
+          task: `Relevé des commissions de ${m} pour ${c.name} (outil commissions_du_mois avec mois="${m}" et societe="${c.name}"). Le fondateur doit pouvoir payer sans recontrôler : suis exactement ta procédure du 1er du mois.`,
+        }).then(() => log.push(`Relevé des commissions ${m} (${c.name}) : fait`)).catch((e) => log.push(`  ⚠ Relevé des commissions ${c.name} : ${(e as Error).message}`));
+      }
+    }
     const rem = await runReminders();
     log.push(`Relances : ${rem.created} créée(s), ${rem.sent} envoyée(s) par e-mail`);
 

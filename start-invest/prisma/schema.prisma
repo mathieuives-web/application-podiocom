@@ -54,14 +54,14 @@ model AuditLog {
 // ---------------------------------------------------------------------------
 
 model Company {
-  id        String   @id @default(cuid())
-  name      String
-  activity  String?
-  color     String   @default("#7f1d1d")
-  active    Boolean  @default(true)
+  id            String   @id @default(cuid())
+  name          String
+  activity      String?
+  color         String   @default("#7f1d1d")
+  active        Boolean  @default(true)
   // Relances automatiques des factures clients en retard (désactivées tant que non choisies)
-  autoReminders Boolean @default(false)
-  createdAt DateTime @default(now())
+  autoReminders Boolean  @default(false)
+  createdAt     DateTime @default(now())
 
   bankAccounts BankAccount[]
   transactions BankTransaction[]
@@ -69,30 +69,32 @@ model Company {
   integrations Integration[]
   documents    Document[]
   statements   FinancialStatement[]
+  vehicles     Vehicle[]
+  employees    Employee[]
 }
 
 model BankAccount {
-  id         String    @id @default(cuid())
-  companyId  String
-  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name       String
-  bank       String?
-  iban       String?
-  balance    Float     @default(0)
-  currency   String    @default("EUR")
-  provider   String    @default("MANUAL") // MANUAL | BANQUE | QONTO | STRIPE
-  externalId String?
+  id             String    @id @default(cuid())
+  companyId      String
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name           String
+  bank           String?
+  iban           String?
+  balance        Float     @default(0)
+  currency       String    @default("EUR")
+  provider       String    @default("MANUAL") // MANUAL | BANQUE | QONTO | STRIPE
+  externalId     String?
   // Société choisie automatiquement d'après le nom du compte (tant qu'aucun choix manuel n'a été fait)
-  autoAssigned Boolean  @default(true)
+  autoAssigned   Boolean   @default(true)
   // Compte exclu du pilotage (ex. compte personnel) : ses opérations ne sont plus importées
-  excluded   Boolean   @default(false)
+  excluded       Boolean   @default(false)
   // COURANT (trésorerie de la société) | SEQUESTRE (fonds de tiers, ex. dépôt-vente) | PRET (emprunt, crédit)
-  kind       String    @default("COURANT")
+  kind           String    @default("COURANT")
   // Découvert autorisé (ex. 250 000 € garanti par Auxiga sur le stock) et note sur ce financement
-  overdraftLimit Float   @default(0)
+  overdraftLimit Float     @default(0)
   financingNote  String?
-  lastSyncAt DateTime?
-  createdAt  DateTime  @default(now())
+  lastSyncAt     DateTime?
+  createdAt      DateTime  @default(now())
 
   integrationId String?
   integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
@@ -128,23 +130,23 @@ enum InvoiceKind {
 }
 
 model Invoice {
-  id           String      @id @default(cuid())
-  companyId    String
-  company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  kind         InvoiceKind
-  number       String?
-  counterparty String
+  id                String      @id @default(cuid())
+  companyId         String
+  company           Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  kind              InvoiceKind
+  number            String?
+  counterparty      String
   counterpartyEmail String?
   // true si le logiciel de facturation (ex. Shine Facture) relance déjà lui-même ce client
-  externalReminders Boolean @default(false)
-  label        String?
-  issueDate    DateTime
-  dueDate      DateTime?
-  amount       Float // TTC
-  paidAmount   Float       @default(0)
-  provider     String      @default("MANUAL") // MANUAL | PENNYLANE
-  externalId   String?
-  createdAt    DateTime    @default(now())
+  externalReminders Boolean     @default(false)
+  label             String?
+  issueDate         DateTime
+  dueDate           DateTime?
+  amount            Float // TTC
+  paidAmount        Float       @default(0)
+  provider          String      @default("MANUAL") // MANUAL | PENNYLANE
+  externalId        String?
+  createdAt         DateTime    @default(now())
 
   integrationId String?
   integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
@@ -199,16 +201,16 @@ model AgentRun {
 
 // Relances clients (niveau 1 = J+3 courtoise, 2 = J+15 ferme, 3 = J+30 dernière relance)
 model Reminder {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   invoiceId String
-  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice   Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   level     Int
   to        String?
   subject   String
   body      String
   status    String // SENT | DRAFT (à envoyer à la main) | ERROR
   error     String?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
   sentAt    DateTime?
 
   @@unique([invoiceId, level])
@@ -226,22 +228,22 @@ model DailyControl {
 
 // Archives : bilans, relevés bancaires et autres documents, stockés chiffrés sur le disque
 model Document {
-  id           String   @id @default(cuid())
-  companyId    String
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  type         String // BILAN | RELEVE | FACTURES | AUTRE
-  year         Int?
-  fileName     String
-  mime         String
-  size         Int
-  sha256       String
-  storagePath  String
-  status       String   @default("PENDING") // PENDING | PROCESSING | DONE | ERROR
-  summary      String? // ce que l'IA a extrait / importé
-  error        String?
-  accountId    String? // pour un relevé : compte bancaire où importer les opérations
-  uploadedBy   String?
-  createdAt    DateTime @default(now())
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  type        String // BILAN | RELEVE | FACTURES | AUTRE
+  year        Int?
+  fileName    String
+  mime        String
+  size        Int
+  sha256      String
+  storagePath String
+  status      String   @default("PENDING") // PENDING | PROCESSING | DONE | ERROR
+  summary     String? // ce que l'IA a extrait / importé
+  error       String?
+  accountId   String? // pour un relevé : compte bancaire où importer les opérations
+  uploadedBy  String?
+  createdAt   DateTime @default(now())
 
   statements FinancialStatement[]
 
@@ -250,27 +252,27 @@ model Document {
 
 // Chiffres clés d'un bilan / compte de résultat (un par société et par exercice)
 model FinancialStatement {
-  id          String    @id @default(cuid())
-  companyId   String
-  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  year        Int
-  documentId  String?
-  document    Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
-  revenue     Float? // chiffre d'affaires
-  grossMargin Float?
-  payroll     Float? // salaires et charges sociales
-  ebitda      Float? // EBE
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  year            Int
+  documentId      String?
+  document        Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  revenue         Float? // chiffre d'affaires
+  grossMargin     Float?
+  payroll         Float? // salaires et charges sociales
+  ebitda          Float? // EBE
   operatingIncome Float? // résultat d'exploitation
-  netIncome   Float? // résultat net
-  equity      Float? // capitaux propres
-  totalAssets Float?
-  cash        Float? // disponibilités
-  debt        Float? // emprunts et dettes financières
-  receivables Float? // créances clients
-  payables    Float? // dettes fournisseurs
-  stock       Float?
-  notes       String? // observations de l'IA (points d'attention)
-  createdAt   DateTime  @default(now())
+  netIncome       Float? // résultat net
+  equity          Float? // capitaux propres
+  totalAssets     Float?
+  cash            Float? // disponibilités
+  debt            Float? // emprunts et dettes financières
+  receivables     Float? // créances clients
+  payables        Float? // dettes fournisseurs
+  stock           Float?
+  notes           String? // observations de l'IA (points d'attention)
+  createdAt       DateTime  @default(now())
 
   @@unique([companyId, year])
 }
@@ -300,4 +302,109 @@ model CategoryRule {
   createdAt DateTime @default(now())
 
   @@unique([key, companyId])
+}
+
+// ------------------------------------------------------------------ véhicules (import Auto Cerfa)
+model Vehicle {
+  id              String       @id @default(cuid())
+  companyId       String
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ref             String // n° de stock / livre de police, sinon immatriculation ou VIN
+  plate           String?
+  vin             String?
+  make            String?
+  model           String?
+  version         String?
+  year            Int?
+  mileage         Int?
+  mode            String       @default("ACHAT") // ACHAT (véhicule acheté) | DEPOT_VENTE (véhicule d'un client)
+  status          String       @default("STOCK") // STOCK | VENDU
+  entryDate       DateTime?
+  purchasePrice   Float? // prix d'achat (ACHAT)
+  costs           Float        @default(0) // frais engagés sur le véhicule (préparation, mécanique, carrosserie, CT...)
+  costsDetail     String? // JSON [{libelle, montant}]
+  askingPrice     Float?
+  saleDate        DateTime?
+  salePrice       Float?
+  sellerPayout    Float? // dépôt-vente : somme reversée au propriétaire
+  depotFee        Float? // dépôt-vente : commission gardée par la société
+  financingSold   Boolean      @default(false)
+  financingIncome Float? // commission de financement perçue par la société
+  warrantySold    Boolean      @default(false)
+  warrantyPrice   Float?
+  buyerName       String? // salarié qui a acheté / rentré le véhicule (tel qu'écrit dans l'export)
+  sellerName      String? // salarié qui a vendu
+  buyerId         String?
+  buyer           Employee?    @relation("VehicleBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  sellerId        String?
+  seller          Employee?    @relation("VehicleSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  customer        String?
+  manualFields    String       @default("") // champs corrigés à la main, jamais écrasés par un nouvel import (liste séparée par des virgules)
+  source          String       @default("AUTOCERFA")
+  updatedAt       DateTime     @updatedAt
+  createdAt       DateTime     @default(now())
+  commissions     Commission[]
+
+  @@unique([companyId, ref])
+}
+
+// ------------------------------------------------------------------ salariés, commissions, congés
+model Employee {
+  id                 String    @id @default(cuid())
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  firstName          String
+  lastName           String    @default("")
+  role               String? // poste
+  email              String?
+  startDate          DateTime?
+  active             Boolean   @default(true)
+  grossSalary        Float? // salaire brut mensuel fixe
+  // Règles de commission : JSON { ACHAT, VENTE, CREDIT, GARANTIE } -> { mode, valeur, vehicules }, + conditions
+  rules              String    @default("{}")
+  rulesNote          String? // résumé / conditions particulières du contrat
+  leaveDaysPerYear   Float     @default(25)
+  contractDocumentId String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  bought      Vehicle[]    @relation("VehicleBuyer")
+  sold        Vehicle[]    @relation("VehicleSeller")
+  commissions Commission[]
+  leaves      Leave[]
+
+  @@unique([companyId, firstName, lastName])
+}
+
+model Commission {
+  id         String    @id @default(cuid())
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  vehicleId  String?
+  vehicle    Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  event      String // ACHAT | VENTE | CREDIT | GARANTIE | MANUEL
+  month      String // AAAA-MM : mois où la commission est due
+  base       Float? // montant sur lequel elle est calculée (marge, prix...)
+  amount     Float
+  detail     String?
+  status     String    @default("A_VERSER") // A_VERSER | VERSE
+  paidAt     DateTime?
+  warning    String? // donnée manquante ou douteuse à vérifier
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([employeeId, vehicleId, event])
+  @@index([month])
+}
+
+model Leave {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  start      DateTime
+  end        DateTime
+  days       Float
+  type       String   @default("CP") // CP | RTT | MALADIE | SANS_SOLDE | AUTRE
+  note       String?
+  createdAt  DateTime @default(now())
 }

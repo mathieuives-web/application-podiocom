@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { loadAgents, reachableFrom, type AgentDef } from "@/lib/agents";
 import { financeSummary, invoiceStatus, escrowSummary } from "@/lib/finance";
 import { cashStatement } from "@/lib/categorization";
+import { vehicleSummary, vehicleMargin, daysInStock } from "@/lib/vehicles";
+import { commissionStatement, currentMonth, employeeFile } from "@/lib/team";
+import { employeeAgentSlug } from "@/lib/agents";
 import { shineMcpServersFor, SHINE_READ_TOOLS } from "@/lib/connectors";
 
 // Moteur d'exécution du board : chaque agent tourne sur l'API Claude avec son fichier
@@ -137,9 +140,39 @@ const DATA_TOOLS: Anthropic.Beta.BetaTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "stock_vehicules",
+    description:
+      "Synthèse du parc de véhicules (import Auto Cerfa) : stock en cours (achats / dépôts-ventes, valeur immobilisée, véhicules de plus de 90 jours) et ventes des N derniers mois (CA, marge réelle totale et moyenne, crédits et garanties vendus, durée moyenne en stock, ventes à perte).",
+    input_schema: { type: "object", properties: { societe: { type: "string" }, mois: { type: "integer", description: "Défaut 12." } }, additionalProperties: false },
+  },
+  {
+    name: "lister_vehicules",
+    description: "Liste détaillée des véhicules : référence, immatriculation, achat ou dépôt-vente, dates, prix d'achat, frais, prix de vente, marge réelle, jours en stock, acheteur et vendeur (salariés), crédit et garantie vendus.",
+    input_schema: {
+      type: "object",
+      properties: {
+        societe: { type: "string" },
+        statut: { type: "string", enum: ["STOCK", "VENDU", "TOUS"] },
+        mode: { type: "string", enum: ["ACHAT", "DEPOT_VENTE", "TOUS"] },
+        limite: { type: "integer", description: "Défaut 100, max 500." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "commissions_du_mois",
+    description: "Relevé des commissions par salarié pour un mois : montant à verser (commissions du mois + celles des mois précédents jamais versées), détail par véhicule et lignes à vérifier.",
+    input_schema: { type: "object", properties: { societe: { type: "string" }, mois: { type: "string", description: "AAAA-MM. Défaut : mois en cours." } }, additionalProperties: false },
+  },
+  {
+    name: "fiche_salarie",
+    description: "Fiche d'un salarié : règles de commission de son contrat, véhicules vendus et achetés, commissions (dues et versées, avec dates), congés pris et restants.",
+    input_schema: { type: "object", properties: { salarie: { type: "string", description: "Identifiant ou prénom du salarié." } }, required: ["salarie"], additionalProperties: false },
+  },
 ];
 
-async function runDataTool(name: string, input: Record<string, unknown>): Promise<unknown> {
+async function runDataTool(name: string, input: Record<string, unknown>, ctx: { agentSlug: string } = { agentSlug: "" }): Promise<unknown> {
   switch (name) {
     case "lister_societes":
       return prisma.company.findMany({
@@ -285,6 +318,56 @@ async function runDataTool(name: string, input: Record<string, unknown>): Promis
         largestIn: e.largestIn.map((r) => ({ ...r, date: r.date.toISOString().slice(0, 10), amount: round(r.amount) })),
       }));
     }
+    case "stock_vehicules": {
+      const companyId = await resolveCompany(input.societe as string | undefined);
+      return vehicleSummary(companyId, Number(input.mois) || 12);
+    }
+    case "lister_vehicules": {
+      const companyId = await resolveCompany(input.societe as string | undefined);
+      const statut = String(input.statut ?? "TOUS");
+      const mode = String(input.mode ?? "TOUS");
+      const list = await prisma.vehicle.findMany({
+        where: { ...(companyId ? { companyId } : {}), ...(statut !== "TOUS" ? { status: statut } : {}), ...(mode !== "TOUS" ? { mode } : {}) },
+        include: { seller: true, buyer: true },
+        orderBy: [{ saleDate: "desc" }, { entryDate: "desc" }],
+        take: Math.min(Number(input.limite) || 100, 500),
+      });
+      return list.map((v) => ({
+        ref: v.ref,
+        immat: v.plate,
+        vehicule: [v.make, v.model, v.version].filter(Boolean).join(" "),
+        mode: v.mode,
+        statut: v.status,
+        entree: v.entryDate?.toISOString().slice(0, 10) ?? null,
+        vente: v.saleDate?.toISOString().slice(0, 10) ?? null,
+        joursEnStock: daysInStock(v),
+        prixAchat: v.purchasePrice,
+        frais: v.costs,
+        prixAffiche: v.askingPrice,
+        prixVente: v.salePrice,
+        reverseAuProprietaire: v.sellerPayout,
+        commissionDepot: v.depotFee,
+        margeReelle: vehicleMargin(v),
+        credit: v.financingSold ? v.financingIncome ?? true : false,
+        garantie: v.warrantySold ? v.warrantyPrice ?? true : false,
+        acheteur: v.buyer?.firstName ?? v.buyerName,
+        vendeur: v.seller?.firstName ?? v.sellerName,
+      }));
+    }
+    case "commissions_du_mois": {
+      if (ctx.agentSlug.startsWith("salarie-")) throw new Error("Un agent salarié ne voit que sa propre fiche (fiche_salarie).");
+      const companyId = await resolveCompany(input.societe as string | undefined);
+      return commissionStatement(String(input.mois || currentMonth()), companyId);
+    }
+    case "fiche_salarie": {
+      const q = String(input.salarie ?? "").trim();
+      const emps = await prisma.employee.findMany();
+      const matches = emps.filter((e) => e.id === q || e.firstName.toLowerCase() === q.toLowerCase() || `${e.firstName} ${e.lastName}`.toLowerCase() === q.toLowerCase());
+      if (matches.length !== 1) throw new Error(matches.length ? `Plusieurs salariés s'appellent « ${q} » : utilise l'identifiant.` : `Salarié « ${q} » introuvable. Salariés : ${emps.map((e) => `${e.firstName} (${e.id})`).join(", ") || "aucun"}`);
+      // Confidentialité : l'agent d'un salarié ne lit que la fiche de ce salarié.
+      if (ctx.agentSlug.startsWith("salarie-") && employeeAgentSlug(matches[0]) !== ctx.agentSlug) throw new Error("Accès refusé : tu ne peux lire que la fiche de ton salarié.");
+      return employeeFile(matches[0].id);
+    }
     case "lister_relances": {
       const companyId = await resolveCompany(input.societe as string | undefined);
       const rems = await prisma.reminder.findMany({
@@ -324,7 +407,7 @@ function systemPrompt(agent: AgentDef, all: AgentDef[], memory: string | null) {
 ---
 Contexte du board d'agents :
 - Tu es « ${agent.title} » (${agent.slug}), structure : ${agent.structure}.${parent ? ` Tu rends compte à ${parent.title}.` : " Tu rends compte directement au fondateur."}
-- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents, flux_mensuels, compte_sequestre et compte_de_resultat donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
+- Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents, flux_mensuels, compte_sequestre, compte_de_resultat, stock_vehicules, lister_vehicules, commissions_du_mois et fiche_salarie donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
 ${reachable ? `- Tu peux déléguer une sous-question précise avec consulter_agent à :\n${reachable}\n- Ne délègue que ce qui apporte vraiment quelque chose : fais toi-même ce qui est simple.` : "- Tu n'as pas d'équipe à consulter : fais le travail toi-même."}
 - Réponds en français, de façon concise et actionnable, au format Markdown. Termine par « À faire par le fondateur » si une action humaine est nécessaire.
 - Tu as une MÉMOIRE personnelle qui persiste entre tes passages. Quand tu apprends quelque chose de durable et utile
@@ -475,7 +558,7 @@ export async function executeAgent(opts: {
               });
               return { type: "tool_result", tool_use_id: tu.id, content: sub.output || "(pas de réponse)" };
             }
-            const data = await runDataTool(tu.name, input);
+            const data = await runDataTool(tu.name, input, { agentSlug: agent.slug });
             return { type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(data).slice(0, 60000) };
           } catch (e) {
             return { type: "tool_result", tool_use_id: tu.id, content: `Erreur : ${(e as Error).message}`, is_error: true };

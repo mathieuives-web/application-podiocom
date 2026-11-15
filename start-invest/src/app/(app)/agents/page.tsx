@@ -27,8 +27,9 @@ function serializeRuns(runs: DbRun[]) {
   });
 }
 
-export default async function AgentsPage() {
+export default async function AgentsPage({ searchParams }: { searchParams: Promise<{ agent?: string }> }) {
   const user = await requireUser();
+  const { agent: initial } = await searchParams;
   const [agents, runs] = await Promise.all([
     loadAgents(),
     prisma.agentRun.findMany({ orderBy: { startedAt: "desc" }, take: 150 }),
@@ -40,6 +41,7 @@ export default async function AgentsPage() {
       canConvoke={isAdmin(user.role)}
       agents={agents.map(({ prompt, ...a }) => ({ ...a, promptLength: prompt.length }))}
       runs={serializeRuns(runs)}
+      initialSelected={initial ?? null}
     />
   );
 }
