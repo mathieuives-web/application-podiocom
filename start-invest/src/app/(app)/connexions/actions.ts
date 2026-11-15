@@ -8,6 +8,8 @@ import { requireAdmin } from "@/lib/session";
 import { encryptJson } from "@/lib/crypto";
 import { PROVIDERS, syncIntegration } from "@/lib/connectors";
 import { audit } from "@/lib/audit";
+import { cancelLive, finishLive, startLive } from "@/lib/connectors/live-browser";
+import { AUTOCERFA_DEFAULT_URL } from "@/lib/connectors/autocerfa";
 
 export async function addIntegration(formData: FormData) {
   const me = await requireAdmin();
@@ -28,6 +30,11 @@ export async function addIntegration(formData: FormData) {
     },
   });
   await audit(me, "connexion_outil_ajoutee", `${provider.name} — société ${integ.companyId}`);
+  if (provider.id === "AUTOCERFA" && !creds.password) {
+    // Pas de mot de passe : le fondateur se connecte lui-même dans la fenêtre en direct.
+    const sid = await startLive(integ.id, me.id, AUTOCERFA_DEFAULT_URL);
+    redirect(`/connexions/direct?sid=${sid}&nom=${encodeURIComponent("Auto Cerfa")}`);
+  }
   if (provider.id === "AUTOCERFA") {
     // Le robot met plusieurs minutes : il travaille en arrière-plan.
     after(() => syncIntegration(integ.id, { force: true }).then(() => undefined).catch(() => undefined));
@@ -74,4 +81,32 @@ export async function removeIntegration(integrationId: string) {
   // Les comptes et opérations déjà importés sont conservés (historique).
   await prisma.integration.delete({ where: { id: integrationId } });
   revalidatePath("/connexions");
+}
+
+const ROBOT_SITES: Record<string, { name: string; url: string }> = { AUTOCERFA: { name: "Auto Cerfa", url: AUTOCERFA_DEFAULT_URL } };
+
+/** Ouvre la fenêtre de connexion en direct pour un logiciel sans API. */
+export async function startDirect(integrationId: string) {
+  const me = await requireAdmin();
+  const integ = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
+  const site = ROBOT_SITES[integ.provider];
+  if (!site) throw new Error("Connexion en direct indisponible pour cet outil.");
+  await audit(me, "connexion_directe_ouverte", `${site.name} — société ${integ.companyId}`);
+  const sid = await startLive(integ.id, me.id, site.url);
+  redirect(`/connexions/direct?sid=${sid}&nom=${encodeURIComponent(site.name)}`);
+}
+
+export async function finishDirect(sid: string) {
+  const me = await requireAdmin();
+  const integrationId = await finishLive(sid, me.id);
+  await audit(me, "connexion_directe_enregistree", integrationId);
+  after(() => syncIntegration(integrationId, { force: true }).then(() => undefined).catch(() => undefined));
+  revalidatePath("/connexions");
+  redirect(`/connexions?msg=${encodeURIComponent("Session enregistrée. Le robot récupère maintenant le stock et les ventes (2 à 5 minutes), puis le refera chaque matin. Rechargez la page pour voir le résultat.")}`);
+}
+
+export async function cancelDirect(sid: string) {
+  const me = await requireAdmin();
+  await cancelLive(sid, me.id).catch(() => undefined);
+  redirect("/connexions");
 }

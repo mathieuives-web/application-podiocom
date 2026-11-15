@@ -45,6 +45,7 @@ async function visible(l: Loc) {
 async function loginIfNeeded(page: Page, username: string, password: string) {
   const pwd = page.locator('input[type="password"]').first();
   if (!(await visible(pwd))) return false;
+  if (!password) throw new Error("Session expirée : le site redemande une connexion. Cliquez « se connecter moi-même » dans Connexions et reconnectez-vous.");
   const candidates = page.locator('input[type="email"], input[type="text"], input[name*="user" i], input[name*="login" i], input[name*="mail" i], input:not([type])');
   let user: Loc | null = null;
   for (let i = 0; i < (await candidates.count()); i++) {
@@ -142,14 +143,21 @@ async function replay(page: Page, steps: Step[], username: string, password: str
  * Se connecte au site et télécharge un fichier par objectif. Les objectifs non atteints sont signalés
  * sans bloquer les autres.
  */
-export async function robotDownload(opts: { site: string; startUrl: string; username: string; password: string; goals: RobotGoal[] }) {
+export async function robotDownload(opts: { site: string; startUrl: string; username: string; password: string; goals: RobotGoal[]; storageState?: string }) {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) throw new Error("Robot de connexion : ANTHROPIC_API_KEY manquante.");
   const start = new URL(opts.startUrl);
   const browser = await launch();
   const files: { goal: string; name: string; content: Buffer }[] = [];
   const problems: string[] = [];
+  let storageState: string | null = null;
   try {
-    const context = await browser.newContext({ acceptDownloads: true, locale: "fr-FR", viewport: { width: 1400, height: 900 } });
+    const context = await browser.newContext({
+      acceptDownloads: true,
+      locale: "fr-FR",
+      viewport: { width: 1280, height: 800 },
+      // Session enregistrée lors de la « connexion assistée » : le robot est déjà connecté.
+      ...(opts.storageState ? { storageState: JSON.parse(opts.storageState) } : {}),
+    });
     const page = await context.newPage();
     await page.goto(opts.startUrl, { waitUntil: "networkidle", timeout: 45000 }).catch(() => undefined);
     for (const goal of opts.goals) {
@@ -207,8 +215,10 @@ export async function robotDownload(opts: { site: string; startUrl: string; user
         problems.push(`${goal.description} : export introuvable après ${MAX_STEPS} étapes (${history.slice(-4).join(" → ")})`);
       }
     }
+    // Session prolongée par le site : on garde les cookies à jour pour le lendemain.
+    storageState = JSON.stringify(await context.storageState());
   } finally {
     await browser.close().catch(() => undefined);
   }
-  return { files, problems };
+  return { files, problems, storageState };
 }

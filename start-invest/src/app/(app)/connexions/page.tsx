@@ -4,7 +4,7 @@ import { PROVIDERS } from "@/lib/connectors";
 import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
 import { bankConfigured, bankRedirectUri, listBanks } from "@/lib/connectors/enablebanking";
 import BankConnect from "./BankConnect";
-import { addIntegration, syncNow, removeIntegration } from "./actions";
+import { addIntegration, syncNow, removeIntegration, startDirect } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +62,11 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                   <td className="text-xs text-slate-500">{i._count.bankAccounts} compte(s) · {i._count.invoices} facture(s)</td>
                   <td className="text-xs">{i.lastSyncAt ? fmt(i.lastSyncAt) : "—"}</td>
                   <td className="whitespace-nowrap space-x-3">
+                    {i.provider === "AUTOCERFA" && (
+                      <form className="inline" action={async () => { "use server"; await startDirect(i.id); }}>
+                        <button className="text-xs underline font-semibold text-emerald-700">se connecter moi-même</button>
+                      </form>
+                    )}
                     <form className="inline" action={async () => { "use server"; await syncNow(i.id); }}>
                       <button className="text-xs underline">synchroniser</button>
                     </form>

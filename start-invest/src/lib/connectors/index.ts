@@ -67,10 +67,10 @@ export const PROVIDERS: ProviderDef[] = [
     name: "Auto Cerfa (stock et ventes de véhicules)",
     kind: "Gestion",
     description:
-      "Auto Cerfa n'a pas d'API : un robot se connecte une fois par jour avec vos identifiants (chiffrés, jamais montrés à l'IA), télécharge l'export Excel du stock et des ventes et les importe (véhicules, frais, marges, vendeurs, commissions). Lecture seule : il ne clique jamais sur un bouton qui modifie quelque chose. Conseil : créez dans Auto Cerfa un utilisateur dédié, sans double vérification par SMS.",
+      "Auto Cerfa n'a pas d'API : vous vous connectez vous-même une fois dans une fenêtre en direct (code SMS compris), la session est gardée chiffrée, et un robot se reconnecte chaque jour, télécharge l'export Excel du stock et des ventes et les importe (véhicules, frais, marges, vendeurs, commissions). Lecture seule : il ne clique jamais sur un bouton qui modifie quelque chose. Conseil : créez dans Auto Cerfa un utilisateur dédié, sans double vérification par SMS.",
     fields: [
-      { name: "login", label: "Identifiant Auto Cerfa (e-mail)" },
-      { name: "password", label: "Mot de passe Auto Cerfa", secret: true },
+      { name: "login", label: "Identifiant Auto Cerfa (facultatif)", optional: true, help: "Laissez vide pour vous connecter vous-même dans la fenêtre en direct." },
+      { name: "password", label: "Mot de passe Auto Cerfa (facultatif)", secret: true, optional: true },
       { name: "url", label: "Adresse de la page de connexion (facultatif)", placeholder: AUTOCERFA_DEFAULT_URL, optional: true },
     ],
     docs: "À choisir pour La Fabrique Automobile. Première connexion : 2 à 5 minutes, le robot apprend le chemin vers les exports.",

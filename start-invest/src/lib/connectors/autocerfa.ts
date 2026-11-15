@@ -1,30 +1,36 @@
 import { prisma } from "@/lib/prisma";
 import { processDocument, saveDocument } from "@/lib/documents";
 import { robotDownload } from "./web-robot";
+import { encryptJson } from "@/lib/crypto";
 import type { SyncResult } from "./types";
 
 // Auto Cerfa n'a pas d'API de stock : le robot de connexion se connecte une fois par jour avec les
 // identifiants enregistrés (chiffrés), télécharge l'export Excel du stock et celui des ventes, puis
 // les importe comme un dépôt manuel (archivés chiffrés, marges et commissions recalculées).
 
-export type AutoCerfaCreds = { login: string; password: string; url?: string };
-export const AUTOCERFA_DEFAULT_URL = "https://www.autocerfa.com/";
+export type AutoCerfaCreds = { login?: string; password?: string; url?: string; storageState?: string };
+export const AUTOCERFA_DEFAULT_URL = "https://www.autocerfa.com/liste-client/";
 const MIN_INTERVAL = 20 * 3600 * 1000; // une fois par jour
 
 export async function syncAutoCerfa(integration: { id: string; companyId: string; lastSyncAt: Date | null }, creds: AutoCerfaCreds, force = false): Promise<SyncResult & { skipped?: boolean; problems?: string[] }> {
   if (!force && integration.lastSyncAt && Date.now() - integration.lastSyncAt.getTime() < MIN_INTERVAL) {
     return { accounts: 0, transactions: 0, invoices: 0, skipped: true };
   }
-  const { files, problems } = await robotDownload({
+  if (!creds.storageState && !creds.password) throw new Error("Pas encore connecté : cliquez « se connecter moi-même ».");
+  const { files, problems, storageState } = await robotDownload({
     site: "autocerfa",
     startUrl: creds.url || AUTOCERFA_DEFAULT_URL,
-    username: creds.login,
-    password: creds.password,
+    username: creds.login ?? "",
+    password: creds.password ?? "",
+    storageState: creds.storageState,
     goals: [
       { key: "stock", description: "Télécharger l'export Excel COMPLET du stock de véhicules (page Stock / Mon stock, bouton « Export Excel »). Il faut d'abord se connecter à l'espace professionnel si ce n'est pas fait (lien Connexion / Mon compte / Espace pro)." },
       { key: "ventes", description: "Télécharger l'export Excel des véhicules VENDUS (page Mes ventes, historique des ventes, livre de police ou export comptable du mois), avec date et prix de vente et si possible le vendeur." },
     ],
   });
+  if (storageState) {
+    await prisma.integration.update({ where: { id: integration.id }, data: { credentials: encryptJson({ ...creds, storageState }) } });
+  }
   if (!files.length) throw new Error(`Auto Cerfa : aucun export récupéré. ${problems.join(" · ")}`.slice(0, 480));
   let vehicles = 0;
   for (const f of files) {
