@@ -13,9 +13,10 @@ import { prisma } from "@/lib/prisma";
 // Le chemin trouvé est mémorisé et rejoué les jours suivants (l'IA n'intervient plus tant qu'il marche).
 
 export type RobotGoal = { key: string; description: string };
-type Step = { text: string; href: string | null };
+type Step = { text: string; href: string | null; url?: string };
 
 const DANGER = /supprim|effac|delete|remove|annul|valid|payer|paiement|envoyer|send|sign|transf|cession|d[ée]clar|immatricul|commander|acheter|cr[ée]er|ajouter|modifier|enregistr|publi|diffus|d[ée]sactiv|r[ée]silier/i;
+const SAFE = /export|t[ée]l[ée]charg|excel|csv/i;
 const MAX_STEPS = 14;
 
 const ActionSchema = z.object({
@@ -131,6 +132,10 @@ ${list.map((e) => `${e.i} : ${e.text}${e.href ? ` [${e.href}]` : ""}`).join("\n"
 async function replay(page: Page, steps: Step[], username: string, password: string) {
   for (const s of steps) {
     await loginIfNeeded(page, username, password);
+    if (s.url) {
+      await page.goto(s.url, { waitUntil: "networkidle", timeout: 30000 }).catch(() => undefined);
+      continue;
+    }
     const loc = s.text ? page.getByText(s.text, { exact: true }).first() : page.locator(`a[href="${s.href}"]`).first();
     if (!(await visible(loc))) return null;
     const file = await clickAndMaybeDownload(page, loc);
@@ -190,8 +195,14 @@ export async function robotDownload(opts: { site: string; startUrl: string; user
         if (a.action === "aller" && a.url) {
           const u = new URL(a.url, page.url());
           if (u.hostname !== start.hostname && !u.hostname.endsWith("." + start.hostname.replace(/^www\./, ""))) throw new Error(`Le robot a voulu quitter le site (${u.hostname}) : arrêt.`);
+          // Lecture seule : une adresse qui modifie quelque chose (…/supprimer, …/valider) est refusée comme un bouton.
+          if (DANGER.test(u.pathname + u.search) && !SAFE.test(u.pathname + u.search)) {
+            history.push(`refusé ${u.pathname} (action risquée)`);
+            continue;
+          }
           await page.goto(u.toString(), { waitUntil: "networkidle", timeout: 30000 }).catch(() => undefined);
           history.push(`ouvrir ${u.pathname}`);
+          steps.push({ text: "", href: null, url: u.toString() }); // rejoué tel quel les jours suivants
           continue;
         }
         const el = list.find((e) => e.i === a.index);
@@ -199,7 +210,8 @@ export async function robotDownload(opts: { site: string; startUrl: string; user
           history.push("(numéro invalide)");
           continue;
         }
-        if (DANGER.test(el.text) && !/export|t[ée]l[ée]charg|excel|csv/i.test(el.text)) {
+        // Le lien compte autant que le texte : une icône « poubelle » sans texte vers /supprimer est refusée.
+        if (DANGER.test(`${el.text} ${el.href ?? ""}`) && !SAFE.test(el.text)) {
           history.push(`refusé « ${el.text} » (action risquée)`);
           continue;
         }

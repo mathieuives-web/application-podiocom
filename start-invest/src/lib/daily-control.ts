@@ -91,7 +91,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
       }
       // Site & réseaux : un audit complet et le calendrier de la semaine, chaque lundi.
       if (new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday") {
-        for (const c of companies.filter((x) => x.website || x.instagram || x.facebook || x.tiktok || x.googleBusiness)) {
+        for (const c of companies.filter((x) => x.website || x.instagram || x.facebook || x.tiktok || x.googleBusiness || x.linkedin)) {
           const web = agents.find((a) => a.slug.startsWith("web-reseaux-") && a.structure === c.name);
           if (!web) continue;
           await executeAgent({ slug: web.slug, kind: "WEEKLY", companyId: c.id, task: `Revue hebdomadaire du ${date} pour ${c.name} : audit du site et de la présence en ligne, plan d'action classé par impact, et calendrier des publications de la semaine prêtes à copier-coller.` })
@@ -100,12 +100,22 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
         }
       }
       if (reports.length) {
-        await executeAgent({
+        const cfo = await executeAgent({
           slug: "cfo",
           kind: "DAILY",
           task: `Revue quotidienne du ${date}. Voici les rapports de tes directeurs financiers. Contrôle-les (vérifie leurs chiffres avec tes outils), donne le verdict du groupe, dis ce que chaque DAF a raté ou doit corriger, et fais remonter au fondateur les 3 sujets qui demandent une décision.\n\n${reports.join("\n\n")}`,
         });
         log.push("Revue du CFO : faite");
+        // Contre-contrôle : l'avocat du diable vérifie tous les rapports et corrige les agents qui se trompent.
+        if (agents.some((a) => a.slug === "avocat-du-diable")) {
+          await executeAgent({
+            slug: "avocat-du-diable",
+            kind: "DAILY",
+            task: `Contre-contrôle du ${date}. Vérifie avec tes outils chaque chiffre et chaque conclusion des rapports ci-dessous, corrige les agents qui se trompent (corriger_agent) et fais ton rapport au fondateur.\n\n${reports.join("\n\n")}\n\n### Revue du CFO\n${cfo.output}`.slice(0, 150000),
+          })
+            .then(() => log.push("Contre-contrôle de l'avocat du diable : fait"))
+            .catch((e) => log.push(`  ⚠ Avocat du diable : ${(e as Error).message}`));
+        }
       }
     }
     return prisma.dailyControl.update({ where: { id: control.id }, data: { status: "DONE", log: log.join("\n"), finishedAt: new Date() } });
@@ -143,5 +153,34 @@ export async function runFullAnalysis(companyId: string, userId?: string | null)
 3. Indique précisément quelles données manquent (années de bilans, mois de relevés) pour une analyse parfaite.
 4. Termine en mettant à jour ta mémoire avec l'essentiel à retenir pour tes contrôles quotidiens (repères chiffrés,
    saisonnalité, seuils d'alerte, points à surveiller).`,
+  });
+}
+
+/**
+ * Contre-contrôle à la demande : l'avocat du diable reprend tous les rapports des agents des dernières
+ * 24 heures, vérifie chaque chiffre avec ses outils et corrige les agents qui se sont trompés.
+ */
+export async function runDevilsAdvocate(userId?: string | null) {
+  if (!agentsConfigured()) throw new Error("Agents IA non activés (ANTHROPIC_API_KEY manquante).");
+  const runs = await prisma.agentRun.findMany({
+    where: { status: "DONE", parentId: null, agent: { not: "avocat-du-diable" }, startedAt: { gte: new Date(Date.now() - 36 * 3600 * 1000) }, output: { not: null } },
+    orderBy: { startedAt: "asc" },
+    take: 40,
+  });
+  const agents = await loadAgents();
+  const title = (slug: string) => agents.find((a) => a.slug === slug)?.title ?? slug;
+  const reports = runs.map((r) => `### ${title(r.agent)} (${r.agent}) — ${r.kind}, ${r.startedAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}\n${r.output}`);
+  const date = new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full" });
+  return executeAgent({
+    slug: "avocat-du-diable",
+    kind: "MANUAL",
+    userId,
+    task: `Contre-contrôle complet demandé par le fondateur le ${date}.
+${reports.length ? "Voici tous les rapports des agents des dernières 36 heures." : "Aucun rapport récent : contrôle directement les chiffres de chaque société avec tes outils."}
+Vérifie chaque chiffre et chaque conclusion avec tes outils, contrôle aussi toi-même les points sensibles de chaque société
+(trésorerie, séquestre dépôt-vente, découvert Auxiga, résultat de l'année, commissions à verser, factures en retard),
+corrige les agents qui se trompent avec corriger_agent, puis fais ton rapport au fondateur.
+
+${reports.join("\n\n")}`.slice(0, 150000),
   });
 }

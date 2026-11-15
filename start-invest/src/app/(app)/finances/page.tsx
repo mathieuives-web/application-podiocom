@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/session";
 import { financeSummary, monthlyFlows, invoiceStatus, eur, escrowSummary } from "@/lib/finance";
 import {
   createCompany, createBankAccount, importStatement, createInvoice, markInvoicePaid, reconcileNow,
-  runControlNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow, moveAccount, renameAccount, autoAssignAccounts, setAccountKind, setOverdraft,
+  runControlNow, runDevilsAdvocateNow, toggleAutoReminders, setInvoiceEmail, sendReminderNow, moveAccount, renameAccount, autoAssignAccounts, setAccountKind, setOverdraft,
 } from "./actions";
 import AccountCompanySelect from "./AccountCompanySelect";
 import AccountKindSelect from "./AccountKindSelect";
@@ -105,6 +105,7 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
             </p>
           </div>
           {admin && <form action={runControlNow}><button className="btn-primary" style={{ background: "#7f1d1d" }}>Lancer le contrôle maintenant</button></form>}
+          {admin && <form action={runDevilsAdvocateNow}><button className="btn-secondary">Avocat du diable : tout contrôler</button></form>}
         </div>
         {control?.log && <pre className="text-xs text-slate-600 whitespace-pre-wrap bg-slate-50 rounded p-2">{control.log}</pre>}
         {cfoReview?.output && (

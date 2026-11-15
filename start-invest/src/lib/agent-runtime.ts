@@ -174,6 +174,7 @@ const DATA_TOOLS: Anthropic.Beta.BetaTool[] = [
 ];
 
 async function runDataTool(name: string, input: Record<string, unknown>, ctx: { agentSlug: string } = { agentSlug: "" }): Promise<unknown> {
+  if (ctx.agentSlug.startsWith("salarie-") && name !== "fiche_salarie") throw new Error("Un agent salarié ne voit que sa propre fiche (fiche_salarie).");
   switch (name) {
     case "lister_societes":
       return prisma.company.findMany({
@@ -356,7 +357,6 @@ async function runDataTool(name: string, input: Record<string, unknown>, ctx: { 
       }));
     }
     case "commissions_du_mois": {
-      if (ctx.agentSlug.startsWith("salarie-")) throw new Error("Un agent salarié ne voit que sa propre fiche (fiche_salarie).");
       const companyId = await resolveCompany(input.societe as string | undefined);
       return commissionStatement(String(input.mois || currentMonth()), companyId);
     }
@@ -450,9 +450,11 @@ export async function executeAgent(opts: {
 
   try {
     const reachable = depth < MAX_DEPTH - 1 ? reachableFrom(agent, all) : [];
+    // Confidentialité : l'agent d'un salarié ne voit que sa propre fiche (pas les ventes, salaires ou banques des autres).
+    const personal = agent.slug.startsWith("salarie-");
     const tools: Anthropic.Beta.BetaToolUnion[] = [
-      ...DATA_TOOLS,
-      ...extraTools(agent),
+      ...(personal ? DATA_TOOLS.filter((t) => t.name === "fiche_salarie") : DATA_TOOLS),
+      ...(personal ? [] : extraTools(agent)),
       {
         name: "mettre_a_jour_memoire",
         description:
@@ -470,7 +472,7 @@ export async function executeAgent(opts: {
     // Accès direct à Shine (lecture seule) : la société de l'agent, ou tout le groupe pour la direction.
     const companies = await prisma.company.findMany({ where: { active: true }, select: { id: true, name: true } });
     const groupWide = ["ceo", "cfo", "flux-holding"].includes(agent.slug);
-    const scope = groupWide ? companies : companies.filter((c) => c.name === agent.structure);
+    const scope = personal ? [] : groupWide ? companies : companies.filter((c) => c.name === agent.structure);
     const shine = scope.length ? await shineMcpServersFor(scope.map((c) => c.id)) : [];
     for (const srv of shine) {
       tools.push({
@@ -560,7 +562,7 @@ export async function executeAgent(opts: {
               });
               return { type: "tool_result", tool_use_id: tu.id, content: sub.output || "(pas de réponse)" };
             }
-            const data = EXTRA_TOOL_NAMES.has(tu.name) ? await runExtraTool(tu.name, input, agent) : await runDataTool(tu.name, input, { agentSlug: agent.slug });
+            const data = EXTRA_TOOL_NAMES.has(tu.name) && !personal ? await runExtraTool(tu.name, input, agent) : await runDataTool(tu.name, input, { agentSlug: agent.slug });
             return { type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(data).slice(0, 60000) };
           } catch (e) {
             return { type: "tool_result", tool_use_id: tu.id, content: `Erreur : ${(e as Error).message}`, is_error: true };

@@ -113,7 +113,7 @@ export async function gmailSearch(integrationId: string, q: string, max = 30) {
   const list = await g.call<{ messages?: { id: string }[] }>(`${GMAIL}/gmail/v1/users/me/messages?${new URLSearchParams({ q, maxResults: String(Math.min(max, 100)) })}`);
   const out = [];
   for (const { id } of list.messages ?? []) {
-    const m = await g.call<GmailMsg>(`${GMAIL}/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=To`);
+    const m = await g.call<GmailMsg>(`${GMAIL}/gmail/v1/users/me/messages/${encodeURIComponent(id)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=To`);
     out.push({ id, de: header(m, "From"), a: header(m, "To"), objet: header(m, "Subject"), date: header(m, "Date"), extrait: m.snippet, libelles: m.labelIds ?? [], nonLu: (m.labelIds ?? []).includes("UNREAD") });
   }
   return { boite: g.email, messages: out };
@@ -121,7 +121,7 @@ export async function gmailSearch(integrationId: string, q: string, max = 30) {
 
 export async function gmailRead(integrationId: string, id: string) {
   const g = await googleClient(integrationId);
-  const m = await g.call<GmailMsg>(`${GMAIL}/gmail/v1/users/me/messages/${id}?format=full`);
+  const m = await g.call<GmailMsg>(`${GMAIL}/gmail/v1/users/me/messages/${encodeURIComponent(id)}?format=full`);
   return { id, de: header(m, "From"), a: header(m, "To"), objet: header(m, "Subject"), date: header(m, "Date"), texte: bodyText(m.payload).slice(0, 12000), piecesJointes: attachments(m.payload), libelles: m.labelIds ?? [] };
 }
 
@@ -141,7 +141,7 @@ export async function gmailOrganize(integrationId: string, id: string, opts: { l
   if (opts.archiver) remove.push("INBOX");
   if (opts.marquerLu) remove.push("UNREAD");
   if (!add.length && !remove.length) return { ok: true, rien: true };
-  await g.call(`${GMAIL}/gmail/v1/users/me/messages/${id}/modify`, { method: "POST", body: { addLabelIds: add, removeLabelIds: remove } });
+  await g.call(`${GMAIL}/gmail/v1/users/me/messages/${encodeURIComponent(id)}/modify`, { method: "POST", body: { addLabelIds: add, removeLabelIds: remove } });
   return { ok: true, ajoutes: add.length, retires: remove };
 }
 
@@ -152,7 +152,7 @@ const FOLDER = "application/vnd.google-apps.folder";
 export async function driveList(integrationId: string, opts: { dossier?: string; recherche?: string; max?: number }) {
   const g = await googleClient(integrationId);
   const parts = ["trashed = false"];
-  if (opts.dossier) parts.push(`'${opts.dossier.replace(/'/g, "")}' in parents`);
+  if (opts.dossier) parts.push(`'${opts.dossier.replace(/[^\w-]/g, "")}' in parents`);
   if (opts.recherche) parts.push(`name contains '${opts.recherche.replace(/'/g, " ")}'`);
   if (!opts.dossier && !opts.recherche) parts.push("'root' in parents");
   const r = await g.call<{ files: { id: string; name: string; mimeType: string; modifiedTime: string; size?: string; parents?: string[] }[] }>(
@@ -169,11 +169,11 @@ export async function driveCreateFolder(integrationId: string, name: string, par
 /** Déplace et/ou renomme un fichier (jamais de suppression). */
 export async function driveMove(integrationId: string, fileId: string, opts: { versDossier?: string; nouveauNom?: string }) {
   const g = await googleClient(integrationId);
-  const f = await g.call<{ parents?: string[] }>(`${API}/drive/v3/files/${fileId}?fields=parents`);
+  const f = await g.call<{ parents?: string[] }>(`${API}/drive/v3/files/${encodeURIComponent(fileId)}?fields=parents`);
   const q = new URLSearchParams({ fields: "id,name,parents" });
   if (opts.versDossier) {
-    q.set("addParents", opts.versDossier);
+    q.set("addParents", opts.versDossier.replace(/[^\w-]/g, ""));
     if (f.parents?.length) q.set("removeParents", f.parents.join(","));
   }
-  return g.call(`${API}/drive/v3/files/${fileId}?${q}`, { method: "PATCH", body: opts.nouveauNom ? { name: opts.nouveauNom.slice(0, 200) } : {} });
+  return g.call(`${API}/drive/v3/files/${encodeURIComponent(fileId)}?${q}`, { method: "PATCH", body: opts.nouveauNom ? { name: opts.nouveauNom.slice(0, 200) } : {} });
 }

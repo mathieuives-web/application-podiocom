@@ -75,23 +75,29 @@ export function labelKey(label: string) {
     .join(" ");
 }
 
-/** Noms et IBAN des comptes du groupe, pour reconnaître les virements entre sociétés du groupe. */
+const upperPlain = (n: string) => n.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z ]+/g, " ").replace(/\s+/g, " ").trim();
+// Noms de compte génériques (« Compte courant », « Compte pro »...) : ils apparaissent dans des libellés de clients.
+const GENERIC = /^((COMPTE|CPT|COURANT|PRINCIPAL|PRO|PROFESSIONNEL|EPARGNE|LIVRET|BANCAIRE|BANQUE|CHEQUES?|CARTE|SEQUESTRE|PRET|DEPOT|VENTE|EUR|EUROS)\s*)+$/;
+
+/** Noms et IBAN des comptes du groupe, par société, pour reconnaître les virements entre sociétés du groupe. */
 async function groupMarkers() {
   const [companies, accounts] = await Promise.all([
-    prisma.company.findMany({ select: { name: true } }),
-    prisma.bankAccount.findMany({ select: { name: true, iban: true } }),
+    prisma.company.findMany({ select: { id: true, name: true } }),
+    prisma.bankAccount.findMany({ select: { companyId: true, name: true, iban: true } }),
   ]);
-  const names = [...companies.map((c) => c.name), ...accounts.map((a) => a.name)]
-    .map((n) => n.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z ]+/g, " ").replace(/\s+/g, " ").trim())
-    .filter((n) => n.length >= 6);
+  const names = [...companies.map((c) => ({ companyId: c.id, n: upperPlain(c.name) })), ...accounts.map((a) => ({ companyId: a.companyId, n: upperPlain(a.name) }))].filter(
+    (x) => x.n.length >= 6 && !GENERIC.test(x.n)
+  );
   const ibans = accounts.map((a) => (a.iban ?? "").replace(/\s/g, "").toUpperCase()).filter((i) => i.length > 10);
-  return { names: [...new Set(names)], ibans };
+  return { names, ibans: [...new Set(ibans)] };
 }
 
-function isInternal(label: string, markers: { names: string[]; ibans: string[] }) {
-  const L = label.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/[^A-Z0-9 ]+/g, " ");
+function isInternal(label: string, companyId: string, markers: Awaited<ReturnType<typeof groupMarkers>>) {
+  const L = label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9 ]+/g, " ");
   if (!/\bVIR|VIREMENT|TRANSFERT\b/.test(L)) return false;
-  return markers.ibans.some((i) => L.replace(/\s/g, "").includes(i)) || markers.names.some((n) => L.includes(n));
+  if (markers.ibans.some((i) => L.replace(/\s/g, "").includes(i))) return true;
+  // Le nom de SA PROPRE société figure souvent dans le libellé d'un paiement client : seul le nom d'une AUTRE société du groupe compte.
+  return markers.names.some((m) => m.companyId !== companyId && L.includes(m.n));
 }
 
 // Anciennes catégories (avant le classement comptable) -> nouvelles.
@@ -126,9 +132,10 @@ export async function applyRules(companyId?: string) {
   let changed = 0;
   for (const t of txs) {
     let cat: string | null = null;
-    if (isInternal(t.label, markers)) cat = INTERNAL;
+    if (isInternal(t.label, t.companyId, markers)) cat = INTERNAL;
     else {
-      const candidates = byKey.get(labelKey(t.label)) ?? [];
+      const key = labelKey(t.label);
+      const candidates = key ? byKey.get(key) ?? [] : []; // libellé sans mot (que des chiffres) : aucune règle ne s'applique
       const pick =
         candidates.find((r) => r.source === "MANUEL" && r.companyId === t.companyId) ??
         candidates.find((r) => r.source === "MANUEL" && r.companyId === "") ??
@@ -235,6 +242,7 @@ Si vraiment impossible à déterminer : « Autres dépenses » ou « Autres entr
 export async function setManualCategory(label: string, category: string, companyId?: string) {
   if (!(ALL_CATEGORIES as string[]).includes(category)) throw new Error("Catégorie inconnue.");
   const key = labelKey(label);
+  if (!key) throw new Error("Ce libellé ne contient aucun mot reconnaissable : impossible d'en faire une règle (elle s'appliquerait à toutes les opérations sans libellé).");
   await prisma.categoryRule.upsert({
     where: { key_companyId: { key, companyId: companyId ?? "" } },
     update: { category, source: "MANUEL", example: label.slice(0, 120) },

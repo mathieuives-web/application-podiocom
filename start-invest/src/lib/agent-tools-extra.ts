@@ -58,6 +58,13 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
       }
     );
   }
+  if (agent.slug === "avocat-du-diable") {
+    tools.push({
+      name: "corriger_agent",
+      description: "Inscrit une correction dans la mémoire d'un agent qui s'est trompé (bon chiffre, bonne règle), pour qu'il ne refasse pas l'erreur. Une correction courte et précise par appel.",
+      input_schema: { type: "object", properties: { agent: { type: "string", description: "Slug de l'agent (ex. daf-bar-lusine)" }, correction: { type: "string" } }, required: ["agent", "correction"], additionalProperties: false },
+    });
+  }
   if (isSecretariat(agent)) {
     tools.push(
       {
@@ -85,15 +92,19 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   return tools;
 }
 
-export const EXTRA_TOOL_NAMES = new Set(["presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
+export const EXTRA_TOOL_NAMES = new Set(["corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
 
 async function scopeCompany(agent: AgentDef, name?: string) {
   const all = await prisma.company.findMany({ where: { active: true } });
   const own = all.find((c) => c.name === agent.structure);
-  const group = GROUP.includes(agent.slug) || !own;
+  const group = GROUP.includes(agent.slug);
+  // Société de l'agent introuvable (renommée, désactivée) : on refuse plutôt que d'ouvrir tout le groupe.
+  if (!group && !own) throw new Error(`Société « ${agent.structure} » introuvable ou inactive : accès refusé.`);
   if (!name) return group ? null : own!;
   const q = name.toLowerCase();
-  const c = all.find((x) => x.id === name) ?? all.find((x) => x.name.toLowerCase().includes(q));
+  const partial = all.filter((x) => x.name.toLowerCase().includes(q));
+  const c = all.find((x) => x.id === name) ?? all.find((x) => x.name.toLowerCase() === q) ?? (partial.length === 1 ? partial[0] : undefined);
+  if (!c && partial.length > 1) throw new Error(`Plusieurs sociétés correspondent à « ${name} » : ${partial.map((x) => x.name).join(", ")}.`);
   if (!c) throw new Error(`Société « ${name} » introuvable.`);
   if (!group && c.id !== own!.id) throw new Error(`Tu ne travailles que pour ${own!.name}.`);
   return c;
@@ -111,20 +122,39 @@ async function googleFor(agent: AgentDef, name?: string, boite?: string) {
 
 // ------------------------------------------------------------------ audit SEO (avec protection contre l'accès au réseau interne)
 
-function privateIp(ip: string) {
+export function privateIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split(".").map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+    return a === 10 || a === 127 || a === 0 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && (b === 18 || b === 19));
   }
   const x = ip.toLowerCase();
-  return x === "::1" || x === "::" || x.startsWith("fc") || x.startsWith("fd") || x.startsWith("fe80") || x.startsWith("::ffff:127.") || x.startsWith("::ffff:10.") || x.startsWith("::ffff:192.168.");
+  // Adresse IPv4 encapsulée (::ffff:a.b.c.d ou ::ffff:XXXX:XXXX) : on vérifie l'IPv4 qu'elle contient.
+  const mapped = x.match(/^::ffff:(?:0:)?(.+)$/);
+  if (mapped) {
+    const tail = mapped[1];
+    if (net.isIPv4(tail)) return privateIp(tail);
+    const hex = tail.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hex) {
+      const hi = parseInt(hex[1], 16);
+      const lo = parseInt(hex[2], 16);
+      return privateIp(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    }
+    return true;
+  }
+  return x === "::1" || x === "::" || x.startsWith("fc") || x.startsWith("fd") || x.startsWith("fe8") || x.startsWith("fe9") || x.startsWith("fea") || x.startsWith("feb") || x.startsWith("ff") || x.startsWith("64:ff9b:");
+}
+
+/** Refuse une adresse dont le nom résout vers le réseau interne (serveur, métadonnées du cloud...). */
+export async function assertPublicHost(hostname: string) {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  const ips = net.isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
+  if (!ips.length || ips.some((i) => privateIp(i.address))) throw new Error("Adresse non publique refusée.");
 }
 
 async function safeFetch(raw: string, redirects = 4): Promise<{ res: Response; url: string; ms: number }> {
   const u = new URL(raw);
   if (!/^https?:$/.test(u.protocol)) throw new Error("Adresse http(s) uniquement.");
-  const ips = await lookup(u.hostname, { all: true });
-  if (!ips.length || ips.some((i) => privateIp(i.address))) throw new Error("Adresse non publique refusée.");
+  await assertPublicHost(u.hostname);
   const t = Date.now();
   const res = await fetch(u, { redirect: "manual", headers: { "User-Agent": "Mozilla/5.0 (compatible; StartInvestSEO/1.0)", Accept: "text/html,*/*" }, signal: AbortSignal.timeout(15000), cache: "no-store" });
   if (res.status >= 300 && res.status < 400 && res.headers.get("location") && redirects > 0) return safeFetch(new URL(res.headers.get("location")!, u).toString(), redirects - 1);
@@ -180,6 +210,22 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
   const soc = input.societe as string | undefined;
   const boite = input.boite as string | undefined;
   switch (name) {
+    case "corriger_agent": {
+      if (agent.slug !== "avocat-du-diable") throw new Error("Réservé à l'avocat du diable.");
+      const { loadAgents } = await import("@/lib/agents");
+      const target = String(input.agent ?? "");
+      if (!(await loadAgents()).some((a) => a.slug === target) || target === agent.slug) throw new Error(`Agent « ${target} » inconnu.`);
+      const correction = String(input.correction ?? "").replace(/\s+/g, " ").trim().slice(0, 400);
+      if (!correction) throw new Error("Correction vide.");
+      const day = new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" });
+      const mem = (await prisma.agentMemory.findUnique({ where: { agent: target } }))?.content ?? "";
+      const HEAD = "## Corrections de l'avocat du diable (à respecter)";
+      const [before, after = ""] = mem.split(HEAD);
+      const lines = [`- ${day} : ${correction}`, ...after.split("\n").filter((l) => l.startsWith("- "))].slice(0, 10);
+      const content = `${HEAD}\n${lines.join("\n")}\n\n${before.trim()}`.slice(0, 6000);
+      await prisma.agentMemory.upsert({ where: { agent: target }, update: { content }, create: { agent: target, content } });
+      return { ok: true, agent: target };
+    }
     case "presence_en_ligne": {
       const c = await scopeCompany(agent, soc);
       const list = await prisma.company.findMany({ where: { active: true, ...(c ? { id: c.id } : {}) } });

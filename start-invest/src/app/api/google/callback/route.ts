@@ -33,7 +33,7 @@ export async function GET(req: Request) {
   try {
     const creds = await exchangeGoogleCode(url.searchParams.get("code") ?? "");
     // Une connexion Google par adresse et par société : une reconnexion remplace l'ancienne.
-    const old = await prisma.integration.findMany({ where: { provider: "GOOGLE", companyId: expected.companyId, label: creds.email ?? null } });
+    const old = await prisma.integration.findMany({ where: { provider: "GOOGLE", companyId: expected.companyId, label: creds.email ?? "Google" } });
     for (const o of old) await prisma.integration.delete({ where: { id: o.id } });
     await prisma.integration.create({
       data: { companyId: expected.companyId, provider: "GOOGLE", label: creds.email ?? "Google", credentials: encryptJson(creds), status: "OK", lastSyncAt: new Date() },

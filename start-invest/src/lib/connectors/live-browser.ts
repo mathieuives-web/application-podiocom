@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { decryptJson, encryptJson } from "@/lib/crypto";
+import { assertPublicHost } from "@/lib/agent-tools-extra";
 
 // Connexion assistée : le fondateur pilote lui-même, depuis l'application, un navigateur ouvert sur
 // le serveur (il voit l'écran, clique, tape son identifiant, son mot de passe, son code SMS...).
@@ -92,6 +93,7 @@ export async function liveAction(id: string, userId: string, a: LiveAction) {
   else if (a.type === "goto") {
     const u = new URL(a.url);
     if (!/^https?:$/.test(u.protocol)) throw new Error("Adresse invalide.");
+    await assertPublicHost(u.hostname); // pas d'accès au réseau interne du serveur (métadonnées du cloud...)
     await p.goto(u.toString(), { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => undefined);
   }
   await p.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => undefined);

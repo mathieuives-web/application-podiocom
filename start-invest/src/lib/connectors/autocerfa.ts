@@ -11,12 +11,30 @@ import type { SyncResult } from "./types";
 export type AutoCerfaCreds = { login?: string; password?: string; url?: string; storageState?: string };
 export const AUTOCERFA_DEFAULT_URL = "https://www.autocerfa.com/liste-client/";
 const MIN_INTERVAL = 20 * 3600 * 1000; // une fois par jour
+const running = new Set<string>(); // un seul robot à la fois par connexion (synchro horaire + bouton)
 
 export async function syncAutoCerfa(integration: { id: string; companyId: string; lastSyncAt: Date | null }, creds: AutoCerfaCreds, force = false): Promise<SyncResult & { skipped?: boolean; problems?: string[] }> {
-  if (!force && integration.lastSyncAt && Date.now() - integration.lastSyncAt.getTime() < MIN_INTERVAL) {
-    return { accounts: 0, transactions: 0, invoices: 0, skipped: true };
+  const skipped = { accounts: 0, transactions: 0, invoices: 0, skipped: true };
+  if (running.has(integration.id)) return skipped;
+  // Dernière TENTATIVE (réussie ou non) : un robot en échec ne relance pas Chromium et l'IA toutes les heures.
+  const attemptKey = `autocerfa-attempt:${integration.id}`;
+  if (!force) {
+    const attempt = await prisma.appSetting.findUnique({ where: { key: attemptKey } });
+    const last = Math.max(integration.lastSyncAt?.getTime() ?? 0, Number(attempt?.value) || 0);
+    if (last && Date.now() - last < MIN_INTERVAL) return skipped;
   }
   if (!creds.storageState && !creds.password) throw new Error("Pas encore connecté : cliquez « se connecter moi-même ».");
+  const now = String(Date.now());
+  await prisma.appSetting.upsert({ where: { key: attemptKey }, update: { value: now }, create: { key: attemptKey, value: now } });
+  running.add(integration.id);
+  try {
+    return await runRobot(integration, creds);
+  } finally {
+    running.delete(integration.id);
+  }
+}
+
+async function runRobot(integration: { id: string; companyId: string }, creds: AutoCerfaCreds): Promise<SyncResult & { problems?: string[] }> {
   const { files, problems, storageState } = await robotDownload({
     site: "autocerfa",
     startUrl: creds.url || AUTOCERFA_DEFAULT_URL,

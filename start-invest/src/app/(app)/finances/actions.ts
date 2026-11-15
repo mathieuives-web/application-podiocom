@@ -117,6 +117,15 @@ export async function runControlNow() {
   redirect(`/finances?msg=${encodeURIComponent("Contrôle lancé : synchro, relances, rapports des DAF puis revue du CFO. Rechargez la page dans quelques minutes.")}`);
 }
 
+export async function runDevilsAdvocateNow() {
+  const me = await requireAdmin();
+  await audit(me, "avocat_du_diable_lance");
+  const { runDevilsAdvocate } = await import("@/lib/daily-control");
+  const { after } = await import("next/server");
+  after(() => runDevilsAdvocate(me.id).then(() => undefined).catch((e) => console.log(`[agent] avocat-du-diable ÉCHEC : ${(e as Error).message}`)));
+  redirect(`/agents?agent=avocat-du-diable`);
+}
+
 export async function toggleAutoReminders(companyId: string) {
   const me = await requireAdmin();
   const c = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });

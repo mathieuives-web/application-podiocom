@@ -121,11 +121,12 @@ function rowToVehicle(r: unknown[], m: Mapping) {
     .filter((c) => c.montant);
   const costsTotal = amount("costsTotal");
   const modeText = norm([text("mode"), text("status")].join(" "));
-  const mode = /depot|d\.?v\b|mandat|confi/.test(modeText) ? "DEPOT_VENTE" : /achat|rachat|reprise|propre/.test(modeText) ? "ACHAT" : m.type_par_defaut === "DEPOT_VENTE" ? "DEPOT_VENTE" : "ACHAT";
+  const mode = /depot|d\.?v\b|mandat|\bconfie/.test(modeText) ? "DEPOT_VENTE" : /achat|rachat|reprise|propre/.test(modeText) ? "ACHAT" : m.type_par_defaut === "DEPOT_VENTE" ? "DEPOT_VENTE" : "ACHAT";
   const saleDate = date("saleDate");
   const salePrice = amount("salePrice");
   const statusText = norm(text("status"));
-  const sold = Boolean(saleDate) || /vendu|livre|facture|sorti/.test(statusText);
+  // « invendu », « non vendu » ou « à vendre » ne sont PAS des ventes.
+  const sold = Boolean(saleDate) || (/vendu|livre|facture|sorti/.test(statusText) && !/invendu|(non|pas) vendu|a vendre/.test(statusText));
   const yearRaw = one("year");
   const year = yearRaw instanceof Date ? yearRaw.getFullYear() : Number(String(yearRaw ?? "").match(/(19|20)\d{2}/)?.[0]) || null;
   const plate = text("plate")?.toUpperCase().replace(/\s/g, "") ?? null;
@@ -166,14 +167,18 @@ function rowToVehicle(r: unknown[], m: Mapping) {
 export type VehicleData = ReturnType<typeof rowToVehicle>;
 
 /** Associe un nom écrit dans l'export (« Kevin », « K. Martin », « MARTIN Kevin ») à un salarié. */
-export async function matchEmployee(companyId: string, name: string | null) {
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+type Emp = { id: string; firstName: string; lastName: string };
+
+export async function matchEmployee(companyId: string, name: string | null, employees?: Emp[]) {
   if (!name) return null;
   const n = norm(name);
-  const emps = await prisma.employee.findMany({ where: { companyId } });
+  const emps = employees ?? (await prisma.employee.findMany({ where: { companyId } }));
   const hits = emps.filter((e) => {
     const f = norm(e.firstName);
     const l = norm(e.lastName);
-    return (f && new RegExp(`\\b${f}\\b`).test(n)) || (l.length > 2 && new RegExp(`\\b${l}\\b`).test(n)) || n === norm(`${f} ${l}`);
+    // Noms échappés : « Jean (JP) » ou « O'Neil+ » ne doivent pas casser l'import.
+    return (f && new RegExp(`\\b${escapeRe(f)}\\b`).test(n)) || (l.length > 2 && new RegExp(`\\b${escapeRe(l)}\\b`).test(n)) || n === norm(`${f} ${l}`);
   });
   return hits.length === 1 ? hits[0].id : null;
 }
@@ -184,10 +189,12 @@ export async function relinkStaff(companyId?: string) {
     where: { ...(companyId ? { companyId } : {}), OR: [{ sellerId: null, sellerName: { not: null } }, { buyerId: null, buyerName: { not: null } }] },
   });
   let n = 0;
+  const staff = new Map<string, Emp[]>();
+  const empsOf = async (cid: string) => staff.get(cid) ?? staff.set(cid, await prisma.employee.findMany({ where: { companyId: cid } })).get(cid)!;
   for (const v of list) {
     const locked = v.manualFields.split(",");
-    const sellerId = !v.sellerId && !locked.includes("sellerId") ? await matchEmployee(v.companyId, v.sellerName) : null;
-    const buyerId = !v.buyerId && !locked.includes("buyerId") ? await matchEmployee(v.companyId, v.buyerName) : null;
+    const sellerId = !v.sellerId && !locked.includes("sellerId") ? await matchEmployee(v.companyId, v.sellerName, await empsOf(v.companyId)) : null;
+    const buyerId = !v.buyerId && !locked.includes("buyerId") ? await matchEmployee(v.companyId, v.buyerName, await empsOf(v.companyId)) : null;
     if (sellerId || buyerId) {
       await prisma.vehicle.update({ where: { id: v.id }, data: { ...(sellerId ? { sellerId } : {}), ...(buyerId ? { buyerId } : {}) } });
       n++;
@@ -205,14 +212,15 @@ export async function importVehicleSheet(companyId: string, rows: unknown[][], f
   let created = 0;
   let updated = 0;
   const unknownStaff = new Set<string>();
+  const employees = await prisma.employee.findMany({ where: { companyId } });
   for (const r of rows.slice(m.ligne_entetes + 1)) {
     if (!r.some((c) => String(c ?? "").trim())) continue;
     const v = rowToVehicle(r, m);
     if (!v.ref) continue;
     const existing = await prisma.vehicle.findUnique({ where: { companyId_ref: { companyId, ref: v.ref } } });
     const locked = new Set((existing?.manualFields ?? "").split(",").filter(Boolean));
-    const buyerId = await matchEmployee(companyId, v.buyerName);
-    const sellerId = await matchEmployee(companyId, v.sellerName);
+    const buyerId = await matchEmployee(companyId, v.buyerName, employees);
+    const sellerId = await matchEmployee(companyId, v.sellerName, employees);
     if (v.buyerName && !buyerId) unknownStaff.add(v.buyerName);
     if (v.sellerName && !sellerId) unknownStaff.add(v.sellerName);
     const data: Record<string, unknown> = { ...v, buyerId, sellerId };
