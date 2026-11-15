@@ -44,10 +44,14 @@ export default async function MiseEnRoutePage() {
   const security: Check[] = [
     { ok: user.totpEnabled, label: "Double authentification activée sur votre compte", help: <Link href="/acces" className="underline">Activer dans Accès</Link> },
     { ok: !defaultPassword, label: "Mot de passe personnel (le mot de passe de départ a été changé)", help: <Link href="/acces" className="underline">Changer dans Accès</Link> },
-    { ok: secret.length >= 32 && !/remplacer|placeholder|dev-/.test(secret), label: "Clé secrète du serveur (AUTH_SECRET) longue et unique", help: "Générez-la avec : openssl rand -base64 32 — puis ne la changez plus (elle chiffre les accès bancaires et les documents)." },
+    { ok: secret.length >= 32 && !/remplacer|placeholder|dev-/.test(secret), label: "Clé secrète du serveur (AUTH_SECRET) longue et unique", help: "Générée automatiquement au premier démarrage si vous n'en fournissez pas. Ne la changez plus ensuite (elle chiffre les accès bancaires et les documents)." },
     { ok: url.startsWith("https://"), label: "Site servi en HTTPS (NEXTAUTH_URL en https://)", help: "Indispensable : sans HTTPS, mots de passe et données circulent en clair." },
     { ok: process.env.REQUIRE_2FA !== "off", label: "Double authentification obligatoire pour les actions sensibles", help: "Retirez REQUIRE_2FA=off des variables." },
-    { ok: process.env.NODE_ENV === "production" ? (process.env.DATA_DIR ? true : "warn") : "warn", label: "Données sur un volume persistant et sauvegardé (DATA_DIR)", help: "Sur Railway : Volume monté sur /app/data. Sauvegardez ce dossier chaque jour (base + documents chiffrés)." },
+    {
+      ok: process.env.PERSISTENT_STORAGE === "no" ? false : process.env.PERSISTENT_STORAGE === "yes" ? true : "warn",
+      label: process.env.PERSISTENT_STORAGE === "no" ? "AUCUN volume : tout sera effacé au prochain déploiement" : "Données sur un volume persistant",
+      help: "Sur Railway : clic droit sur le service → Attach volume → chemin /app/data. Activez aussi les sauvegardes du volume.",
+    },
   ];
   const services: Check[] = [
     { ok: agentsConfigured(), label: "Agents IA activés (ANTHROPIC_API_KEY)", help: "Clé à créer sur console.anthropic.com, avec une limite de dépense mensuelle." },

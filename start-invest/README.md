@@ -76,12 +76,31 @@ npm run dev               # http://localhost:3000
 Connexion : `ADMIN_EMAIL` / `ADMIN_PASSWORD` (par défaut `admin@start-invest.fr` / `startinvest2026`)
 — **changez le mot de passe** dans *Accès* dès la première connexion.
 
-## Mise en ligne
+## Mise en ligne sur Railway (10 minutes, sans ligne de commande)
 
-Même principe que l'application Podiocom : image Docker fournie (Railway, ou VPS avec Caddy pour le
-HTTPS). Un volume persistant monté sur `/app/data` conserve la base. Variables à définir :
-`AUTH_SECRET`, `AUTH_TRUST_HOST=true`, `NEXTAUTH_URL`, `ANTHROPIC_API_KEY`, et éventuellement
-`ADMIN_EMAIL` / `ADMIN_PASSWORD` (premier lancement) et `CRON_SECRET`.
+L'application se configure seule : clé secrète générée au premier démarrage et conservée dans le
+volume, adresse publique déduite du domaine Railway, base de données créée puis mise à jour à chaque
+nouvelle version, droits du volume réglés automatiquement.
+
+1. **railway.com** → *New Project* → *Deploy from GitHub repo* → `application-podiocom`.
+2. Dans le service créé → **Settings** :
+   - *Source* → **Root Directory** : `start-invest` ;
+   - *Source* → **Branch** : `claude/bank-billing-integration-2ppnaz` (tant que ce n'est pas fusionné) ;
+   - *Networking* → **Generate Domain** (port `3000`).
+3. Clic droit sur le service → **Attach volume** → chemin **`/app/data`**. Indispensable : sans
+   volume, tout est effacé à chaque déploiement. Activez les sauvegardes du volume.
+4. **Variables** → ajoutez (valeurs saisies uniquement dans Railway) :
+   - `ANTHROPIC_API_KEY` — clé Claude (console.anthropic.com), avec une limite de dépense ;
+   - `SHINE_CLIENT_ID` et `SHINE_CLIENT_SECRET` — vos accès Shine Connect ;
+   - facultatif : `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` pour envoyer les relances.
+5. Attendez le déploiement, ouvrez l'adresse, connectez-vous (`admin@start-invest.fr` /
+   `startinvest2026`), puis suivez la page **Mise en route**.
+
+Chez Shine, l'adresse de retour à déclarer est `https://<votre-domaine-railway>/api/shine/callback`.
+Gardez **une seule instance** (le planificateur du contrôle quotidien tourne dans l'application).
+
+Autre hébergeur (VPS + Docker) : `docker compose up -d --build` avec un volume sur `/app/data` ;
+définissez alors `NEXTAUTH_URL=https://votre-domaine` (et `AUTH_SECRET` si vous le souhaitez).
 
 **Synchronisation automatique** : appelez toutes les heures `GET /api/cron/sync` avec l'en-tête
 `Authorization: Bearer <CRON_SECRET>` (cron Railway, cron-job.org...).
