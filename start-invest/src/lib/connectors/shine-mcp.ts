@@ -161,12 +161,31 @@ const date = (v: unknown) => {
 };
 const str = (v: unknown) => (v === undefined || v === null ? null : String(typeof v === "object" ? (v as { name?: string }).name ?? "" : v) || null);
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Appelle un outil Shine ; réessaie si la session Shine n'est pas encore prête (message « retry in a moment »). */
+async function call(c: Client, name: string, args: Record<string, unknown>) {
+  let last: Error | null = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return payload(await c.callTool({ name, arguments: args }));
+    } catch (e) {
+      last = e as Error;
+      const transient = /session could not be established|retry|timeout|temporar|503|502/i.test(last.message);
+      console.log(`[shine] ${name} essai ${attempt + 1} : ${last.message.slice(0, 200)}`);
+      if (!transient) break;
+      await sleep(3000 * (attempt + 1));
+    }
+  }
+  throw new Error(`${name} : ${last?.message ?? "erreur"}`);
+}
+
 async function listAll(c: Client, tool: string, args: Record<string, unknown>, max = 2000) {
   const out: Record<string, unknown>[] = [];
   let page = 1;
   let cursor: string | undefined;
   for (let i = 0; i < 40 && out.length < max; i++) {
-    const res = payload(await c.callTool({ name: tool, arguments: { ...args, ...(cursor ? { cursor } : { page }) } }));
+    const res = await call(c, tool, { ...args, ...(cursor ? { cursor } : { page }) });
     const items = findList(res);
     out.push(...items);
     const next = res && typeof res === "object" ? (pick(res as Record<string, unknown>, ["next_cursor", "nextCursor", "pagination.next_cursor", "meta.next_cursor"]) as string | undefined) : undefined;
@@ -215,7 +234,16 @@ export async function syncShineMcp(integration: { id: string; companyId: string 
       invoices++;
     };
 
-    if (has("invoicing_search_invoices")) {
+    const errors: string[] = [];
+    const section = async (label: string, fn: () => Promise<void>) => {
+      try {
+        await fn();
+      } catch (e) {
+        errors.push(`${label} : ${(e as Error).message.slice(0, 200)}`);
+      }
+    };
+
+    if (has("invoicing_search_invoices")) await section("factures", async () => {
       const list = await listAll(c, "invoicing_search_invoices", {});
       (meta.champs as Record<string, string[]>).factures = Object.keys(list[0] ?? {});
       for (const o of list) {
@@ -223,16 +251,16 @@ export async function syncShineMcp(integration: { id: string; companyId: string 
         if (/draft|brouillon/.test(status)) continue;
         await upsertInvoice(o, "CLIENT");
       }
-    }
-    if (has("expenses_list_bills")) {
+    });
+    if (has("expenses_list_bills")) await section("factures fournisseurs", async () => {
       const list = await listAll(c, "expenses_list_bills", {});
       (meta.champs as Record<string, string[]>).factures_fournisseurs = Object.keys(list[0] ?? {});
       for (const o of list) await upsertInvoice(o, "SUPPLIER");
-    }
+    });
 
     // Lignes bancaires : comptes bancaires du plan comptable, puis leurs lignes (toutes, pas seulement non rapprochées).
-    if (has("bank_list_bank_lines") && has("setting_list_accounts")) {
-      const accs = findList(payload(await c.callTool({ name: "setting_list_accounts", arguments: { bank_accounts_only: true } })))
+    if (has("bank_list_bank_lines") && has("setting_list_accounts")) await section("banque", async () => {
+      const accs = findList(await call(c, "setting_list_accounts", { bank_accounts_only: true }))
         .filter((a) => /bank|banque|512/i.test(JSON.stringify(a)));
       (meta.champs as Record<string, string[]>).comptes = Object.keys(accs[0] ?? {});
       for (const a of accs) {
@@ -272,11 +300,14 @@ export async function syncShineMcp(integration: { id: string; companyId: string 
         const reported = num(pick(a, ["balance", "current_balance", "bank_balance"]));
         await prisma.bankAccount.update({ where: { id: account.id }, data: { balance: reported ?? bal._sum.amount ?? 0 } });
       }
-    }
+    });
 
+    meta.erreurs = errors;
     await prisma.integration.update({ where: { id: integration.id }, data: { meta: JSON.stringify(meta).slice(0, 4000) } });
     // Noms des outils et des champs reçus (aucune valeur) pour ajuster la lecture si Shine fait évoluer son format.
     console.log(`[shine] outils: ${tools.length} | champs: ${JSON.stringify(meta.champs).slice(0, 1500)}`);
+    // Tout a échoué : on remonte l'erreur (la connexion reste à refaire ou à réessayer).
+    if (errors.length && !accounts && !transactions && !invoices) throw new Error(errors.join(" | "));
     return { accounts, transactions, invoices };
   });
 }
