@@ -21,14 +21,20 @@ export async function GET(req: Request) {
   const jar = await cookies();
   const saved = jar.get("shine_oauth")?.value;
   jar.delete({ name: "shine_oauth", path: "/api/shine" });
-  if (url.searchParams.get("error")) return back("Connexion Shine annulée.");
+  if (url.searchParams.get("error")) {
+    console.log(`[shine] retour avec erreur : ${url.searchParams.get("error")} ${url.searchParams.get("error_description") ?? ""}`.slice(0, 300));
+    return back("Connexion Shine annulée.");
+  }
   let expected: { state: string; companyId: string; verifier: string } | null = null;
   try {
     expected = saved ? JSON.parse(saved) : null;
   } catch {
     expected = null;
   }
-  if (!expected || expected.state !== url.searchParams.get("state")) return back("Connexion Shine refusée (session expirée). Réessayez.");
+  if (!expected || expected.state !== url.searchParams.get("state")) {
+    console.log("[shine] retour refusé : session expirée ou état invalide");
+    return back("Connexion Shine refusée (session expirée). Réessayez.");
+  }
   const code = url.searchParams.get("code");
   if (!code) return back("Shine n'a pas renvoyé de code d'autorisation.");
 
@@ -43,8 +49,10 @@ export async function GET(req: Request) {
     await audit(me, "shine_connecte", `société ${expected.companyId}`);
     const r = await syncIntegration(integ.id);
     msg = `Shine connecté : ${r.accounts} compte(s), ${r.transactions} opération(s), ${r.invoices} facture(s) synchronisé(s).`;
+    console.log(`[shine] connexion OK pour ${expected.companyId} : ${r.accounts} compte(s), ${r.transactions} ligne(s), ${r.invoices} facture(s)`);
   } catch (e) {
     msg = `Connexion Shine impossible : ${(e as Error).message}`;
+    console.log(`[shine] connexion ÉCHOUÉE pour ${expected.companyId} : ${(e as Error).message.slice(0, 300)}`);
   }
   return back(msg);
 }

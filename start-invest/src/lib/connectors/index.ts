@@ -90,8 +90,10 @@ export async function syncIntegration(integrationId: string): Promise<SyncResult
       data: { status: "OK", lastSyncAt: new Date(), lastError: null },
     });
     await autoReconcile(integ.companyId);
+    console.log(`[synchro] ${integ.provider} ${integ.companyId} OK : ${result.accounts} compte(s), ${result.transactions} ligne(s), ${result.invoices} facture(s)`);
     return result;
   } catch (e) {
+    console.log(`[synchro] ${integ.provider} ${integ.companyId} ÉCHEC : ${(e as Error).message.slice(0, 300)}`);
     await prisma.integration.update({
       where: { id: integ.id },
       data: { status: "ERROR", lastError: (e as Error).message.slice(0, 500) },

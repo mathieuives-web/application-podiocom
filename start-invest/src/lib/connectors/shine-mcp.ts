@@ -275,6 +275,8 @@ export async function syncShineMcp(integration: { id: string; companyId: string 
     }
 
     await prisma.integration.update({ where: { id: integration.id }, data: { meta: JSON.stringify(meta).slice(0, 4000) } });
+    // Noms des outils et des champs reçus (aucune valeur) pour ajuster la lecture si Shine fait évoluer son format.
+    console.log(`[shine] outils: ${tools.length} | champs: ${JSON.stringify(meta.champs).slice(0, 1500)}`);
     return { accounts, transactions, invoices };
   });
 }
