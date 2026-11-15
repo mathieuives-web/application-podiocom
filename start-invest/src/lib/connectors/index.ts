@@ -6,14 +6,26 @@ import { syncQonto } from "./qonto";
 import { syncStripe } from "./stripe";
 import { syncPennylane } from "./pennylane";
 import { syncShineMcp, shineMcpFresh, SHINE_MCP_URL, type ShineMcpCreds } from "./shine-mcp";
+import { syncEnableBanking, type BankCreds } from "./enablebanking";
 
 export const PROVIDERS: ProviderDef[] = [
   {
-    id: "SHINE",
-    name: "Shine (compte pro + Shine Facture)",
+    id: "BANQUE",
+    name: "Banque (Shine, BNP, Crédit Agricole, SG, LCL, CIC, Qonto...)",
     kind: "Banque",
     description:
-      "Factures clients, factures fournisseurs, lignes bancaires et grand livre de Shine Facture, via le serveur officiel de Shine pour les assistants IA (MCP). Connexion avec votre identifiant Shine habituel, en lecture seule. Offre Shine payante (Start ou Plus) requise ; connexion à renouveler tous les 30 jours.",
+      "Soldes et toutes les opérations bancaires, par la connexion officielle des banques (DSP2) via Enable Banking. Vous vous identifiez sur le site de votre banque ; lecture seule. Accord à renouveler au plus tard tous les 180 jours.",
+    fields: [],
+    docs: "Choisir la banque puis « Connecter la banque » pour chaque société",
+    available: true,
+    oauth: true,
+  },
+  {
+    id: "SHINE",
+    name: "Shine Facture (factures et comptabilité)",
+    kind: "Banque",
+    description:
+      "Factures clients, factures fournisseurs et grand livre de Shine Facture (le logiciel de facturation-comptabilité de Shine, distinct du compte pro). Connexion avec votre identifiant Shine, en lecture seule. Nécessite un abonnement Shine Facture actif (Start ou Plus) ; à renouveler tous les 30 jours. Pour les opérations bancaires Shine, utilisez la carte « Banque ».",
     fields: [],
     docs: "Bouton « Se connecter avec Shine » pour chaque société",
     available: true,
@@ -49,16 +61,7 @@ export const PROVIDERS: ProviderDef[] = [
     docs: "Pennylane → Paramètres → Connectivité → Développeurs → Générer un jeton (lecture)",
     available: true,
   },
-  {
-    id: "AGREGATEUR",
-    name: "Autres banques (BNP, Crédit Agricole, SG, LCL, CIC...)",
-    kind: "Agrégateur bancaire",
-    description:
-      "Connexion DSP2 de n'importe quelle banque via un agrégateur agréé (Bridge, Powens ou Enable Banking). Nécessite l'ouverture d'un compte chez l'agrégateur. En attendant : import CSV/Excel des relevés dans Finances.",
-    fields: [],
-    docs: "Contrat agrégateur requis",
-    available: false,
-  },
+
   {
     id: "AUTRES",
     name: "Sellsy, Axonaut, QuickBooks, Tiime, Indy...",
@@ -75,7 +78,9 @@ export async function syncIntegration(integrationId: string): Promise<SyncResult
   const creds = decryptJson<Record<string, string>>(integ.credentials);
   try {
     let result: SyncResult;
-    if (integ.provider === "SHINE") {
+    if (integ.provider === "BANQUE") {
+      result = await syncEnableBanking(integ, creds as unknown as BankCreds);
+    } else if (integ.provider === "SHINE") {
       const fresh = await shineMcpFresh(creds as unknown as ShineMcpCreds);
       if (fresh.refreshed) {
         await prisma.integration.update({ where: { id: integ.id }, data: { credentials: encryptJson(fresh.creds) } });

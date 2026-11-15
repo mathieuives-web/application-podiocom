@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { PROVIDERS } from "@/lib/connectors";
 import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
+import { bankConfigured, bankRedirectUri, listBanks } from "@/lib/connectors/enablebanking";
 import { addIntegration, syncNow, removeIntegration } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,15 @@ const fmt = (d: Date) => d.toLocaleString("fr-FR", { dateStyle: "short", timeSty
 export default async function ConnexionsPage({ searchParams }: { searchParams: Promise<{ msg?: string }> }) {
   await requireAdmin();
   const { msg } = await searchParams;
+  let banks: { name: string }[] = [];
+  let banksError: string | null = null;
+  if (bankConfigured()) {
+    try {
+      banks = await listBanks();
+    } catch (e) {
+      banksError = (e as Error).message;
+    }
+  }
   const [companies, integrations] = await Promise.all([
     prisma.company.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
     prisma.integration.findMany({
@@ -78,7 +88,41 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
               <h3 className="font-semibold">{p.name}</h3>
               <p className="text-sm text-slate-600">{p.description}</p>
             </div>
-            {p.oauth ? (
+            {p.id === "BANQUE" ? (
+              bankConfigured() ? (
+                <div className="space-y-2">
+                  {banksError && <p className="text-xs text-red-700">{banksError}</p>}
+                  {companies.map((c) => {
+                    const connected = integrations.filter((i) => i.provider === "BANQUE" && i.companyId === c.id);
+                    return (
+                      <form key={c.id} action="/api/banque/connect" method="GET" className="flex flex-wrap items-center gap-2 text-sm">
+                        <input type="hidden" name="companyId" value={c.id} />
+                        <span className="w-44 shrink-0">
+                          {c.name}
+                          {connected.length > 0 && <span className="block text-xs text-emerald-700">{connected.map((i) => i.label).join(", ")}</span>}
+                        </span>
+                        <select name="bank" className="input py-1 text-xs flex-1 min-w-40" defaultValue={banks.find((b) => /shine/i.test(b.name))?.name ?? ""} required>
+                          <option value="">Banque…</option>
+                          {banks.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
+                        </select>
+                        <button className="btn-primary text-xs">Connecter la banque</button>
+                      </form>
+                    );
+                  })}
+                  <p className="text-xs text-slate-500">Une société avec plusieurs banques : connectez-les l&apos;une après l&apos;autre.</p>
+                </div>
+              ) : (
+                <ol className="text-xs text-slate-600 list-decimal pl-4 space-y-1">
+                  <li>Créez un compte gratuit sur <a className="underline" href="https://enablebanking.com/sign-in/" target="_blank" rel="noreferrer">enablebanking.com</a> (lien de connexion par e-mail).</li>
+                  <li>
+                    Menu <strong>API applications</strong> → nouvelle application en <strong>Production</strong>, nom « Start Invest », adresse de retour :{" "}
+                    <code className="break-all">{bankRedirectUri()}</code>. Le navigateur télécharge un fichier <code>.pem</code> (la clé privée).
+                  </li>
+                  <li>Cliquez <strong>Activate by linking accounts</strong> et connectez vos comptes (Shine...) : c&apos;est gratuit pour vos propres comptes.</li>
+                  <li>Dans Railway, ajoutez <code>ENABLE_BANKING_APP_ID</code> (le nom du fichier sans .pem) et <code>ENABLE_BANKING_PRIVATE_KEY</code> (le contenu du fichier .pem), puis Deploy.</li>
+                </ol>
+              )
+            ) : p.oauth ? (
               shineMcpAvailable() ? (
                 <ul className="space-y-2">
                   <li className="text-xs text-slate-500">

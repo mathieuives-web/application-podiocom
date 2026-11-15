@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { agentsConfigured } from "@/lib/agent-runtime";
 import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
+import { bankConfigured } from "@/lib/connectors/enablebanking";
 import { smtpConfigured } from "@/lib/reminders";
 import { loadAgents } from "@/lib/agents";
 
@@ -55,7 +56,8 @@ export default async function MiseEnRoutePage() {
   ];
   const services: Check[] = [
     { ok: agentsConfigured(), label: "Agents IA activés (ANTHROPIC_API_KEY)", help: "Clé à créer sur console.anthropic.com, avec une limite de dépense mensuelle." },
-    { ok: shineMcpAvailable(), label: "Connexion Shine disponible (identifiant Shine de chaque société, offre Start ou Plus)", help: "Le site doit connaître son adresse publique (NEXTAUTH_URL)." },
+    { ok: bankConfigured(), label: "Connexion bancaire configurée (Enable Banking : Shine et toutes les banques)", help: <Link href="/connexions" className="underline">Étapes dans Connexions → carte Banque</Link> },
+    { ok: shineMcpAvailable() ? "warn" : false, label: "Shine Facture (factures) : seulement avec un abonnement Shine Facture actif", help: "Facultatif. Sans Shine Facture, déposez vos exports de factures dans Archives." },
     { ok: smtpConfigured() ? true : "warn", label: "Envoi des relances par e-mail (SMTP)", help: "Sans SMTP, les relances sont préparées en brouillon. Si Shine Facture relance déjà vos clients, ce n'est pas bloquant." },
     { ok: process.env.SCHEDULER !== "off", label: `Contrôle automatique chaque matin à ${hour} h (heure de Paris)`, help: "Retirez SCHEDULER=off, ou appelez /api/cron/daily depuis un planificateur." },
     {
@@ -80,7 +82,7 @@ export default async function MiseEnRoutePage() {
       <section className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {companies.map((c) => {
           const daf = agents.find((a) => a.slug.startsWith("daf-") && a.structure === c.name);
-          const bank = c.integrations.find((i) => ["SHINE", "QONTO"].includes(i.provider));
+          const bank = c.integrations.find((i) => ["BANQUE", "QONTO"].includes(i.provider) && i.status === "OK") ?? c.integrations.find((i) => ["BANQUE", "QONTO"].includes(i.provider));
           const invoicing = c.integrations.find((i) => ["SHINE", "PENNYLANE"].includes(i.provider)) || c._count.invoices > 0;
           const years = c.statements.map((s) => s.year).sort();
           const releves = c.documents.filter((d) => d.type === "RELEVE" && d.status === "DONE").length;
@@ -89,8 +91,8 @@ export default async function MiseEnRoutePage() {
             ...(daf ? [{ ok: true, label: `Directeur financier : ${daf.title}` } as Check] : []),
             {
               ok: bank ? (bank.status === "OK" ? true : "warn") : c.bankAccounts.length ? "warn" : false,
-              label: bank ? `Banque connectée (${bank.provider === "SHINE" ? "Shine" : bank.provider})${bank.status !== "OK" ? " — " + (bank.lastError ?? "en attente") : ""}` : c.bankAccounts.length ? "Compte saisi à la main (pas de synchro automatique)" : "Banque non connectée",
-              help: <Link href="/connexions" className="underline">Connexions → Se connecter avec Shine</Link>,
+              label: bank ? `Banque connectée (${bank.label ?? bank.provider})${bank.status !== "OK" ? " — " + (bank.lastError ?? "en attente") : ""}` : c.bankAccounts.length ? "Compte saisi à la main (pas de synchro automatique)" : "Banque non connectée",
+              help: <Link href="/connexions" className="underline">Connexions → carte Banque</Link>,
             },
             {
               ok: invoicing ? true : holding ? "warn" : false,

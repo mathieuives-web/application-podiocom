@@ -179,7 +179,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Appelle un outil Shine ; réessaie si la session Shine n'est pas encore prête (message « retry in a moment »). */
 async function call(c: Client, name: string, args: Record<string, unknown>) {
   let last: Error | null = null;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return payload(await c.callTool({ name, arguments: args }));
     } catch (e) {
@@ -187,8 +187,11 @@ async function call(c: Client, name: string, args: Record<string, unknown>) {
       const transient = /session could not be established|retry|timeout|temporar|503|502/i.test(last.message);
       console.log(`[shine] ${name} essai ${attempt + 1} : ${last.message.slice(0, 200)}`);
       if (!transient) break;
-      await sleep(3000 * (attempt + 1));
+      await sleep(2000);
     }
+  }
+  if (last && /session could not be established/i.test(last.message)) {
+    throw new Error("Shine refuse l'accès aux données : ce compte n'a pas d'abonnement Shine Facture actif (offre Start ou Plus). Pour les opérations bancaires Shine, utilisez la carte « Banque ».");
   }
   throw new Error(`${name} : ${last?.message ?? "erreur"}`);
 }
