@@ -161,3 +161,29 @@ export async function quickConnect(provider: string, companyName: string, label?
   const sid = await startLive(integ.id, me.id, site.url);
   redirect(`/connexions/direct?sid=${sid}&nom=${encodeURIComponent(site.name)}`);
 }
+
+/**
+ * Identifiant + mot de passe d'un logiciel sans API (GTA Pro, Auto Cerfa, Autodata...), enregistrés chiffrés :
+ * le robot se connecte seul, maintenant et à chaque fois que la session du site expire.
+ */
+export async function saveRobotCredentials(provider: string, companyName: string, label: string | undefined, url: string | undefined, formData: FormData) {
+  const me = await requireAdmin();
+  if (!["AUTOCERFA", "GTAPRO", "PORTAIL"].includes(provider)) throw new Error("Connexion indisponible.");
+  const login = String(formData.get("login") ?? "").trim().slice(0, 200);
+  const password = String(formData.get("password") ?? "").slice(0, 200);
+  if (!login || !password) redirect(`/connexions?msg=${encodeURIComponent("Identifiant et mot de passe obligatoires.")}`);
+  const company = await prisma.company.findFirstOrThrow({ where: { name: companyName } });
+  const { decryptJson } = await import("@/lib/crypto");
+  let integ = await prisma.integration.findFirst({ where: { provider, companyId: company.id, ...(provider === "PORTAIL" ? { label } : {}) } });
+  const base = provider === "PORTAIL" ? { name: label, url, purpose: label === "Autodata" ? "temps de main-d'œuvre et valeurs constructeur" : undefined } : url ? { url } : {};
+  const previous = integ ? decryptJson<Record<string, unknown>>(integ.credentials) : base;
+  const creds = encryptJson({ ...base, ...previous, login, password });
+  integ = integ
+    ? await prisma.integration.update({ where: { id: integ.id }, data: { credentials: creds, status: "PENDING", lastError: null } })
+    : await prisma.integration.create({ data: { companyId: company.id, provider, label: provider === "PORTAIL" ? label ?? "Portail" : null, credentials: creds } });
+  await audit(me, "identifiants_robot_enregistres", `${provider} ${label ?? ""} — ${company.name}`);
+  const id = integ.id;
+  if (provider !== "PORTAIL") after(() => syncIntegration(id, { force: true }).then(() => undefined).catch(() => undefined));
+  revalidatePath("/connexions");
+  redirect(`/connexions?msg=${encodeURIComponent(provider === "PORTAIL" ? `${label} : identifiants enregistrés (chiffrés). Les agents s'y connecteront seuls.` : "Identifiants enregistrés (chiffrés). Le robot se connecte maintenant (2 à 5 minutes) : rechargez la page pour voir le résultat.")}`);
+}

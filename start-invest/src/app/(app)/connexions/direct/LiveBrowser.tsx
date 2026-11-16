@@ -42,7 +42,7 @@ export default function LiveBrowser({ sid }: { sid: string }) {
           await queue.current;
           const r = await fetch(`/api/robot/${sid}?t=${Date.now()}`, { cache: "no-store" });
           if (r.status === 410) {
-            setError("Fenêtre fermée ou expirée : relancez la connexion depuis Connexions.");
+            setError("La fenêtre s'est fermée (30 min sans activité ou mise à jour du serveur).");
             return;
           }
           if (r.ok) {

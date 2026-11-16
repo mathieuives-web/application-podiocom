@@ -6,7 +6,7 @@ import { microsoftConfigured } from "@/lib/connectors/microsoft";
 import { whatsappVerifyToken } from "@/lib/connectors/whatsapp";
 import { ensureKnownPresence } from "@/lib/projects";
 import BankConnect from "./BankConnect";
-import { addIntegration, quickConnect, syncNow } from "./actions";
+import { addIntegration, quickConnect, saveRobotCredentials, syncNow } from "./actions";
 
 
 // Tout ce qu'il faut connecter, société par société, prêt d'avance : il ne reste qu'à cliquer et taper ses identifiants.
@@ -139,6 +139,15 @@ export default async function ConnectChecklist() {
                   <Status ok={ok} warn={Boolean(i && connectedRobot(i))}>{ok ? `connecté${i?.lastSyncAt ? `, lu le ${i.lastSyncAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : ""}` : i?.lastError ?? "à connecter"}</Status>
                   <form action={quickConnect.bind(null, it.provider, company, undefined, undefined)}><button className="btn-primary text-xs">{ok ? "Se reconnecter" : "Se connecter"}</button></form>
                   {i && connectedRobot(i) && <form action={syncNow.bind(null, i.id)}><button className="text-xs underline">lire maintenant</button></form>}
+                  <details className="w-full sm:ml-56 text-xs">
+                    <summary className="cursor-pointer underline">Enregistrer identifiant + mot de passe (le robot se connecte seul)</summary>
+                    <form action={saveRobotCredentials.bind(null, it.provider, company, undefined, undefined)} className="flex flex-wrap gap-2 items-center mt-1">
+                      <input name="login" required placeholder="Identifiant" className="input py-1 text-xs w-48" autoComplete="off" autoCapitalize="none" />
+                      <input name="password" type="password" required placeholder="Mot de passe" className="input py-1 text-xs w-44" autoComplete="off" />
+                      <button className="btn-primary text-xs">Enregistrer et connecter</button>
+                      <span className="text-slate-500">Chiffrés, jamais montrés aux agents. Si le site demande un code SMS, utilisez plutôt « Se connecter ».</span>
+                    </form>
+                  </details>
                 </li>
               );
             }
@@ -150,6 +159,15 @@ export default async function ConnectChecklist() {
                   <span className="w-56 text-sm">{it.name} <span className="text-xs text-slate-500">({it.hint})</span></span>
                   <Status ok={ok}>{ok ? "connecté" : i?.lastError ?? "à connecter"}</Status>
                   <form action={quickConnect.bind(null, "PORTAIL", company, it.name, it.url)}><button className="btn-primary text-xs">{ok ? "Se reconnecter" : "Se connecter"}</button></form>
+                  <details className="w-full sm:ml-56 text-xs">
+                    <summary className="cursor-pointer underline">Enregistrer identifiant + mot de passe (le robot se connecte seul)</summary>
+                    <form action={saveRobotCredentials.bind(null, "PORTAIL", company, it.name, it.url)} className="flex flex-wrap gap-2 items-center mt-1">
+                      <input name="login" required placeholder="Identifiant" className="input py-1 text-xs w-48" autoComplete="off" autoCapitalize="none" />
+                      <input name="password" type="password" required placeholder="Mot de passe" className="input py-1 text-xs w-44" autoComplete="off" />
+                      <button className="btn-primary text-xs">Enregistrer et connecter</button>
+                      <span className="text-slate-500">Chiffrés, jamais montrés aux agents. Si le site demande un code SMS, utilisez plutôt « Se connecter ».</span>
+                    </form>
+                  </details>
                 </li>
               );
             }

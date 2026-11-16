@@ -9,7 +9,7 @@ import { assertPublicHost } from "@/lib/agent-tools-extra";
 // reconnecter sans rien demander. Rien de ce qui est tapé n'est journalisé ni envoyé à l'IA.
 
 export const LIVE_VIEWPORT = { width: 1280, height: 800 };
-const IDLE_MS = 15 * 60 * 1000;
+const IDLE_MS = 30 * 60 * 1000;
 
 type Live = {
   integrationId: string;
