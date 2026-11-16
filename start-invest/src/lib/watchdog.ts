@@ -31,6 +31,15 @@ export async function runWatchdog(): Promise<Surveillance> {
   const lastErrors = await prisma.agentRun.findMany({ where: { status: "ERROR", startedAt: { gte: new Date(now - 24 * 3600 * 1000) }, NOT: { error: { startsWith: "Bloqué" } } }, select: { agent: true, error: true }, take: 50 });
   if (lastErrors.length >= 3) problemes.push(`${lastErrors.length} travaux d'agents en échec sur 24 h (dernier : ${lastErrors[0].agent} — ${(lastErrors[0].error ?? "").slice(0, 120)}).`);
 
+  // 2 bis. Agents en continu : le travail ne doit jamais s'arrêter (sauf plafond journalier atteint).
+  if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
+    const { continuousStatus } = await import("@/lib/continuous");
+    const c = await continuousStatus();
+    const lastAt = c.last?.finishedAt?.getTime() ?? 0;
+    if (c.today >= c.max) problemes.push(`Plafond de ${c.max} travaux d'agents atteint aujourd'hui (variable AGENTS_MAX_RUNS_PER_DAY) : reprise à minuit.`);
+    else if (!c.running && lastAt && now - lastAt > 30 * 60 * 1000) problemes.push("Aucun agent n'a travaillé depuis plus de 30 minutes : redémarrage de la rotation.");
+  }
+
   // 3. Connexions en panne qui demandent une action
   const broken = await prisma.integration.findMany({ where: { status: "ERROR" }, include: { company: { select: { name: true } } } });
   for (const i of broken.filter((b) => needsUserAction(b.lastError))) problemes.push(`${i.label ?? i.provider} (${i.company.name}) : ${humanError(i.lastError)}`);

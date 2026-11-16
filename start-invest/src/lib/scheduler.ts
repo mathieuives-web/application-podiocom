@@ -67,6 +67,8 @@ export function startScheduler() {
   // Surveillance toutes les 5 minutes (sans IA) : agents bloqués, contrôle du jour, connexions, données.
   setInterval(() => void import("@/lib/watchdog").then((m) => m.runWatchdog()).catch((e) => console.error("[surveillance]", e)), 5 * 60 * 1000);
   setTimeout(() => void import("@/lib/watchdog").then((m) => m.runWatchdog()).catch(() => undefined), 90 * 1000);
+  // Agents en continu, 24 h sur 24 : toutes les minutes, si aucun travail en cours, le plus en retard démarre.
+  setInterval(() => void import("@/lib/continuous").then((m) => m.runNextAgentJob()).catch((e) => console.error("[agents en continu]", e)), 60 * 1000);
   setInterval(tick, 5 * 60 * 1000);
   console.log("[planificateur] actif : synchro horaire + contrôle quotidien");
 }
