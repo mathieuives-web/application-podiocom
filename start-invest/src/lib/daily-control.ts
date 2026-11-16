@@ -69,7 +69,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
             slug: daf.slug,
             kind: "DAILY",
             companyId: c.id,
-            task: `Contrôle quotidien du ${date} pour ${c.name}. Rédige ton rapport du jour en suivant exactement ta procédure (verdict en première ligne). Ensuite, mets à jour ta mémoire avec ce que tu as appris aujourd'hui.`,
+            task: `Contrôle quotidien du ${date} pour ${c.name}. COMMENCE par resultats_societe (societe="${c.name}") et mets en tête de ton rapport, avec les chiffres exacts de l'outil : ce que la société a gagné cette année et en moyenne par mois, le solde des comptes, puis selon l'activité le nombre de véhicules vendus ce mois et cette année avec la marge, le nombre et le montant des factures clients du mois et de l'année, les loyers encaissés ; et la liste de ce qui manque (ne l'estime jamais). Ensuite rédige ton rapport du jour en suivant exactement ta procédure (verdict en première ligne). Ensuite, mets à jour ta mémoire avec ce que tu as appris aujourd'hui.`,
           });
           reports.push(`### ${daf.title} (${c.name})\n${r.output}`);
         } catch (e) {
@@ -130,7 +130,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
         const cfo = await executeAgent({
           slug: "cfo",
           kind: "DAILY",
-          task: `Revue quotidienne du ${date}. Voici les rapports de tes directeurs financiers. Contrôle-les (vérifie leurs chiffres avec tes outils), donne le verdict du groupe, dis ce que chaque DAF a raté ou doit corriger, et fais remonter au fondateur les 3 sujets qui demandent une décision.\n\n${reports.join("\n\n")}`,
+          task: `Revue quotidienne du ${date}. Appelle d'abord resultats_societe sans société (tout le groupe) et commence ta revue par un tableau : société / gagné cette année / par mois / solde / indicateur clé (véhicules vendus, factures atelier, loyers). Voici les rapports de tes directeurs financiers. Contrôle-les (vérifie leurs chiffres avec tes outils), donne le verdict du groupe, dis ce que chaque DAF a raté ou doit corriger, et fais remonter au fondateur les 3 sujets qui demandent une décision.\n\n${reports.join("\n\n")}`,
         });
         log.push("Revue du CFO : faite");
         // Contre-contrôle : l'avocat du diable vérifie tous les rapports et corrige les agents qui se trompent.

@@ -33,6 +33,12 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
       input_schema: { type: "object", properties: { societe }, additionalProperties: false },
     },
     {
+      name: "resultats_societe",
+      description:
+        "CHIFFRES RÉELS d'une société (ou de toutes si tu es au niveau groupe) pour l'année : ce qu'elle gagne (banque, hors prêts et virements internes), entrées/sorties mois par mois, principales dépenses, solde et découvert, véhicules vendus (mois/année, marge, stock Auto Cerfa), nombre et montant des factures clients (GTA Pro...), loyers perçus/payés, bilans, et la liste de ce qui MANQUE. À utiliser AVANT toute réponse chiffrée.",
+      input_schema: { type: "object", properties: { societe, annee: { type: "integer" } }, additionalProperties: false },
+    },
+    {
       name: "analyser_site",
       description:
         "Audit SEO d'une page web publique : statut, temps de réponse, HTTPS, titre, meta description, balises h1/h2, nombre de mots, images sans texte alternatif, liens, balises Open Graph, données structurées (schema.org), robots, présence de sitemap.xml et robots.txt, numéro de téléphone et adresse visibles.",
@@ -224,7 +230,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   return tools;
 }
 
-export const EXTRA_TOOL_NAMES = new Set(["lister_rdv", "rentabilite_atelier", "noter_rdv", "modifier_rdv", "lister_portails", "consulter_portail", "boites_mail", "mail_enregistrer_facture", "lister_atelier", "preparer_document_atelier", "lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
+export const EXTRA_TOOL_NAMES = new Set(["resultats_societe", "lister_rdv", "rentabilite_atelier", "noter_rdv", "modifier_rdv", "lister_portails", "consulter_portail", "boites_mail", "mail_enregistrer_facture", "lister_atelier", "preparer_document_atelier", "lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
 
 async function scopeCompany(agent: AgentDef, name?: string) {
   const all = await prisma.company.findMany({ where: { active: true } });
@@ -353,6 +359,18 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
   const soc = input.societe as string | undefined;
   const boite = input.boite as string | undefined;
   switch (name) {
+    case "resultats_societe": {
+      const { companyResults, groupResults } = await import("@/lib/results");
+      const annee = Number(input.annee) || new Date().getFullYear();
+      // L'avocat du diable contre-vérifie tout le groupe : il lit toutes les sociétés.
+      if (agent.slug === "avocat-du-diable") {
+        const all = await prisma.company.findMany({ where: { active: true } });
+        const c = soc ? all.find((x) => x.name.toLowerCase().includes(soc.toLowerCase())) : null;
+        return c ? companyResults(c.id, annee) : groupResults(annee);
+      }
+      const c = await scopeCompany(agent, soc);
+      return c ? companyResults(c.id, annee) : groupResults(annee);
+    }
     case "lister_atelier": {
       if (!canSeeAtelier(agent)) throw new Error("Réservé à l'atelier Auto Rac'Ives et à la direction.");
       const c = await prisma.company.findFirst({ where: { name: "Auto Rac Ives" } });
