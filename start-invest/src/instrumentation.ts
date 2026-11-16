@@ -22,6 +22,28 @@ export async function register() {
       console.error("[secours]", e);
     }
   }
+  // Secours : RESET_PASSWORD_FOR="email:jeton-unique" crée UN lien de réinitialisation (30 min, usage unique),
+  // écrit dans le journal du serveur pour être transmis au fondateur, qui choisit lui-même son nouveau mot de passe.
+  const resetPwd = process.env.RESET_PASSWORD_FOR;
+  if (resetPwd) {
+    try {
+      const { prisma } = await import("./lib/prisma");
+      const { createResetToken } = await import("./lib/recovery");
+      const [email, nonce = ""] = resetPwd.split(":");
+      const key = `resetpwd:${email}:${nonce}`;
+      if (email && nonce.length >= 8 && !(await prisma.appSetting.findUnique({ where: { key } }))) {
+        const u = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+        if (u) {
+          const token = await createResetToken(u.id);
+          const base = (process.env.NEXTAUTH_URL ?? "").replace(/\/$/, "");
+          console.log(`[secours] lien de réinitialisation du mot de passe (30 min, usage unique) : ${base}/login/nouveau?token=${token}`);
+        }
+        await prisma.appSetting.create({ data: { key, value: new Date().toISOString() } });
+      }
+    } catch (e) {
+      console.error("[secours]", e);
+    }
+  }
   const { startScheduler } = await import("./lib/scheduler");
   startScheduler();
 }

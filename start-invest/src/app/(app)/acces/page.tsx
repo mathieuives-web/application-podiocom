@@ -3,8 +3,10 @@ import { isAdmin, requireUser } from "@/lib/session";
 import QRCode from "qrcode";
 import { decryptJson } from "@/lib/crypto";
 import { totpUri } from "@/lib/totp";
-import { changeMyPassword, confirmTotp, createUser, removePasskey, resetUserTotp, startTotpSetup, toggleUser } from "./actions";
+import { changeMyPassword, confirmTotp, createRecoveryCodes, createUser, removePasskey, resetUserTotp, startTotpSetup, toggleUser } from "./actions";
 import PasskeyRegister from "./PasskeyRegister";
+import RecoveryCodes from "./RecoveryCodes";
+import { recoveryCodesLeft } from "@/lib/recovery";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,7 @@ export default async function AccesPage({ searchParams }: { searchParams: Promis
   const logs = admin ? await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 }) : [];
   const meDb = await prisma.user.findUniqueOrThrow({ where: { id: me.id } });
   const passkeys = await prisma.passkey.findMany({ where: { userId: me.id }, orderBy: { createdAt: "asc" } });
+  const codesLeft = await recoveryCodesLeft(me.id);
   let qr: string | null = null;
   let secret: string | null = null;
   if (setup && meDb.totpSecret && !meDb.totpEnabled) {
@@ -49,6 +52,11 @@ export default async function AccesPage({ searchParams }: { searchParams: Promis
           </ul>
         )}
         <p className="text-xs text-slate-500">Téléphone perdu : retirez-le ici depuis un autre appareil.</p>
+      </section>
+
+      <section className={`card space-y-3 ${codesLeft ? "" : "border-amber-300 bg-amber-50"}`}>
+        <h2 className="font-semibold">Codes de secours (mot de passe oublié) {codesLeft ? "✅" : "⚠️"}</h2>
+        <RecoveryCodes action={createRecoveryCodes} left={codesLeft} />
       </section>
 
       <section className={`card space-y-3 ${meDb.totpEnabled || passkeys.length ? "" : "border-amber-300 bg-amber-50"}`}>

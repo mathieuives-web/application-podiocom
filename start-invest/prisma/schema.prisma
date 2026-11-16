@@ -539,3 +539,22 @@ model LoginRequest {
 
   @@index([userId, status])
 }
+
+// Mot de passe oublié : lien de réinitialisation à usage unique (30 min) et codes de secours à usage unique.
+model PasswordReset {
+  tokenHash String    @id
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+model RecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}

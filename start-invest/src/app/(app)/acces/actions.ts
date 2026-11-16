@@ -91,3 +91,12 @@ export async function removePasskey(id: string) {
   await audit(me, "cle_acces_supprimee", pk.name);
   revalidatePath("/acces");
 }
+
+/** 10 nouveaux codes de secours (mot de passe oublié), affichés une seule fois. */
+export async function createRecoveryCodes() {
+  const me = await requireUser();
+  const { newRecoveryCodes } = await import("@/lib/recovery");
+  const codes = await newRecoveryCodes(me.id);
+  await audit(me, "codes_de_secours_crees", "10 codes");
+  return codes;
+}

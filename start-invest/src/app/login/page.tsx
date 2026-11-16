@@ -5,7 +5,7 @@ import { cookies, headers } from "next/headers";
 import PasskeyLogin from "./PasskeyLogin";
 import { createRequest, LR_COOKIE, needsPhoneApproval, passwordCheck } from "@/lib/phone-approval";
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string; reset?: string }> }) {
   const params = await searchParams;
   if ((await auth())?.user) redirect("/"); // déjà connecté (session valide, non révoquée)
 
@@ -55,12 +55,13 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <h1 className="text-2xl font-bold text-slate-900">Start Invest</h1>
           <p className="text-sm text-slate-500 mt-1">Pilotage du groupe</p>
         </div>
+        {params?.reset && <p className="card text-sm bg-emerald-50 border-emerald-200 text-emerald-900 mb-4">✅ Mot de passe changé : connectez-vous avec le nouveau, puis activez Face ID dans Accès.</p>}
         <div className="card space-y-3 mb-4">
           <PasskeyLogin action={loginPasskey} />
           {params?.error === "cle" && <p className="text-sm text-red-600">Face ID non reconnu ici : connectez-vous avec le mot de passe, puis activez Face ID dans Accès.</p>}
           <p className="text-xs text-slate-500 text-center">Un seul geste : visage, empreinte ou code du téléphone. À activer une fois dans Accès.</p>
         </div>
-        <details className="card" open={Boolean(params?.error) && params?.error !== "cle"}>
+        <details className="card" open={(Boolean(params?.error) && params?.error !== "cle") || Boolean(params?.reset)}>
         <summary className="cursor-pointer text-sm font-medium">Se connecter avec le mot de passe</summary>
         <form action={login} className="space-y-4 mt-3">
           <div>
@@ -83,6 +84,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             </p>
           )}
           <button type="submit" className="btn-primary w-full" style={{ background: "#7f1d1d" }}>Se connecter</button>
+          <a href="/login/oubli" className="block text-center text-xs underline text-slate-500">Mot de passe oublié ?</a>
         </form>
         </details>
       </div>
