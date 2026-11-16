@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { eur } from "@/lib/finance";
 import { atelierSnapshot } from "@/lib/connectors/gtapro";
-import { addAppointment, askAtelier, refuseTask, setAppointmentStatus, validateTask } from "./actions";
+import { addAppointment, askAtelier, refuseTask, setAppointmentStatus, validateTask, completeLine } from "./actions";
 import { atelierTool } from "@/lib/atelier";
 import type { AgentDef } from "@/lib/agents";
 
@@ -163,7 +163,17 @@ export default async function AtelierPage({ searchParams }: { searchParams: Prom
                 <thead><tr><th>Type</th><th>Désignation</th><th className="text-right">Qté</th><th className="text-right">PU HT</th><th className="text-right">Total HT</th><th>Source</th></tr></thead>
                 <tbody>
                   {(p.lignes ?? []).map((l, i) => (
-                    <tr key={i}><td>{l.type === "MAIN_OEUVRE" ? "Main-d'œuvre" : l.type === "PIECE" ? "Pièce" : "Forfait"}</td><td>{l.designation}{l.reference ? ` (${l.reference})` : ""}</td><td className="text-right">{l.quantite}</td><td className="text-right">{eur(l.prix_unitaire_ht)}</td><td className="text-right">{eur(l.quantite * l.prix_unitaire_ht)}</td><td className={!l.prix_unitaire_ht || /compl/i.test(l.source ?? "") ? "text-red-700 font-medium" : "text-slate-500"}>{l.source ?? "—"}</td></tr>
+                    <tr key={i}><td>{l.type === "MAIN_OEUVRE" ? "Main-d'œuvre" : l.type === "PIECE" ? "Pièce" : "Forfait"}</td><td>{l.designation}{l.reference ? ` (${l.reference})` : ""}</td><td className="text-right">{l.quantite}</td><td className="text-right">{eur(l.prix_unitaire_ht)}</td><td className="text-right">{eur(l.quantite * l.prix_unitaire_ht)}</td><td className={!l.prix_unitaire_ht || /compl/i.test(l.source ?? "") ? "text-red-700 font-medium" : "text-slate-500"}>
+                      {l.source ?? "—"}
+                      {["BROUILLON", "ERREUR"].includes(t.status) && (!l.prix_unitaire_ht || /compl/i.test(l.source ?? "")) && (
+                        <form action={completeLine.bind(null, t.id, i)} className="flex flex-wrap gap-1 mt-1 font-normal text-slate-900">
+                          <input name="quantite" inputMode="decimal" required defaultValue={l.quantite || ""} placeholder={l.type === "MAIN_OEUVRE" ? "heures (ex. 1,2)" : "qté"} className="input py-0.5 text-xs w-24" />
+                          <input name="prix" inputMode="decimal" required placeholder={l.type === "MAIN_OEUVRE" ? "taux horaire HT" : "PU HT"} className="input py-0.5 text-xs w-24" />
+                          <input name="source" defaultValue={l.type === "MAIN_OEUVRE" ? "WebDataBays" : ""} placeholder="source (fournisseur…)" className="input py-0.5 text-xs w-28" />
+                          <button className="btn-primary text-xs py-0.5">OK</button>
+                        </form>
+                      )}
+                    </td></tr>
                   ))}
                   <tr><td colSpan={4} className="text-right font-medium">Total HT</td><td className="text-right font-medium">{eur(p.total_ht ?? 0)}</td><td /></tr>
                 </tbody>

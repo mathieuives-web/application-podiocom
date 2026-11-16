@@ -81,7 +81,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
     {
       name: "consulter_portail",
       description:
-        "Cherche une information RÉELLE dans un portail pro connecté (ex. WebDataBays : temps barème d'une opération, préconisation d'huile et capacité, couple de serrage, périodicité d'entretien ; fournisseur : prix et disponibilité d'une référence pour un véhicule). Donne une question précise avec le véhicule (immatriculation ou marque / modèle / motorisation / année). Prend 1 à 3 minutes. Consultation seulement : jamais de commande.",
+        "Cherche une information RÉELLE dans un portail pro connecté (ex. catalogue fournisseur : prix et disponibilité d'une pièce ; PAS WebDataBays, qui bloque les robots : ses temps barème sont saisis par le fondateur ; périodicité d'entretien ; fournisseur : prix et disponibilité d'une référence pour un véhicule). Donne une question précise avec le véhicule (immatriculation ou marque / modèle / motorisation / année). Prend 1 à 3 minutes. Consultation seulement : jamais de commande.",
       input_schema: { type: "object", properties: { portail: { type: "string", description: "Nom du portail (voir lister_portails)" }, question: { type: "string" }, societe }, required: ["portail", "question"], additionalProperties: false },
     }
   );

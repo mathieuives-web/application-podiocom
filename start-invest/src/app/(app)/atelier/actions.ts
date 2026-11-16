@@ -14,11 +14,33 @@ export async function validateTask(id: string) {
   const draft = await prisma.robotTask.findUniqueOrThrow({ where: { id } });
   const lines = (JSON.parse(draft.payload).lignes ?? []) as { prix_unitaire_ht: number; source?: string }[];
   if (lines.some((l) => !l.prix_unitaire_ht || /compl[ée]ter/i.test(l.source ?? ""))) {
-    redirect("/atelier?msg=" + encodeURIComponent("Ce document a des lignes « à compléter » : complétez la demande (ou les accès WebDataBays / fournisseur) et faites-le préparer à nouveau."));
+    redirect("/atelier?msg=" + encodeURIComponent("Ce document a des lignes « à compléter » : complétez les lignes en rouge (quantité / temps et prix), puis validez."));
   }
   const t = await prisma.robotTask.update({ where: { id }, data: { status: "VALIDE", validatedBy: me.email ?? me.id, validatedAt: new Date(), error: null } });
   await audit(me, "atelier_document_valide", t.title);
   after(() => import("@/lib/connectors/gtapro").then((m) => m.runPendingTasks(t.companyId)).catch(() => undefined));
+  revalidatePath("/atelier");
+}
+
+/** Le fondateur complète une ligne lui-même (temps barème lu sur WebDataBays, prix lu chez le fournisseur). */
+export async function completeLine(id: string, index: number, formData: FormData) {
+  const me = await requireAdmin();
+  const t = await prisma.robotTask.findUniqueOrThrow({ where: { id } });
+  if (!["BROUILLON", "ERREUR"].includes(t.status)) redirect("/atelier");
+  const num = (k: string) => Number(String(formData.get(k) ?? "").replace(/\s/g, "").replace(",", "."));
+  const qte = num("quantite");
+  const pu = num("prix");
+  const source = String(formData.get("source") ?? "").trim().slice(0, 80) || "saisi par le fondateur";
+  if (!(qte > 0) || !(pu > 0)) redirect("/atelier?msg=" + encodeURIComponent("Quantité et prix doivent être des nombres supérieurs à 0."));
+  const p = JSON.parse(t.payload) as { lignes?: { quantite: number; prix_unitaire_ht: number; source?: string }[]; total_ht?: number };
+  const l = p.lignes?.[index];
+  if (!l) redirect("/atelier");
+  l.quantite = qte;
+  l.prix_unitaire_ht = pu;
+  l.source = `${source} (saisi par ${me.name ?? "le fondateur"})`;
+  p.total_ht = Math.round((p.lignes ?? []).reduce((s, x) => s + x.quantite * x.prix_unitaire_ht, 0) * 100) / 100;
+  await prisma.robotTask.update({ where: { id }, data: { payload: JSON.stringify(p) } });
+  await audit(me, "atelier_ligne_completee", `${t.title} — ligne ${index + 1}`);
   revalidatePath("/atelier");
 }
 
@@ -42,7 +64,7 @@ export async function askAtelier(formData: FormData) {
       slug: "clients-devis-auto-rac-ives",
       userId: me.id,
       task: `Le fondateur demande ${type} : « ${demande} ». Tu n'inventes RIEN :
-1. Temps de main-d'œuvre et valeurs constructeur (huile, capacité, pièces de l'entretien) : consulter_portail sur WebDataBays pour CE véhicule.
+1. Temps de main-d'œuvre et valeurs constructeur : WebDataBays bloque les robots, tu NE le consultes PAS. Mets la ligne de main-d'œuvre avec la désignation précise de l'opération, quantité 1, prix 0 et source « à compléter : temps WebDataBays » : le fondateur la complète lui-même. Pour les pièces de l'entretien, demande-lui de vérifier sur WebDataBays si tu n'as pas la valeur dans un document.
 2. Prix des pièces : consulter_portail sur le(s) portail(s) fournisseur(s) (lister_portails), ou le tarif de GTA Pro.
 3. Taux horaire : celui de l'atelier dans GTA Pro (lister_atelier / devis existants) ; s'il est inconnu, « à compléter ».
 Puis preparer_document_atelier avec la source de chaque ligne ; une valeur introuvable = prix 0 et source « à compléter ».

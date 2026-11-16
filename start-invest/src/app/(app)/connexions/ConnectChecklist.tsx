@@ -152,6 +152,19 @@ export default async function ConnectChecklist() {
                 </li>
               );
             }
+            if (it.kind === "PORTAIL" && it.name === "WebDataBays") {
+              // Protégé par Cloudflare : aucun robot ne peut s'y connecter depuis le serveur. Consultation par le fondateur.
+              return (
+                <li key={k} className="flex flex-wrap items-center gap-2">
+                  <span className="w-56 text-sm">{it.name} <span className="text-xs text-slate-500">({it.hint})</span></span>
+                  <Status ok>rien à connecter</Status>
+                  <span className="text-xs text-slate-500 basis-full sm:basis-auto">
+                    Le site bloque tous les robots (protection anti-robot). Vous le consultez dans votre navigateur habituel ; dans chaque devis, la ligne de
+                    main-d&apos;œuvre arrive « à compléter » et vous tapez le temps barème dans la page <Link href="/atelier" className="underline">Atelier</Link>.
+                  </span>
+                </li>
+              );
+            }
             if (it.kind === "PORTAIL") {
               const i = mine.find((x) => x.provider === "PORTAIL" && x.label === it.name);
               const ok = count(Boolean(i && connectedRobot(i) && i.status !== "ERROR"));
