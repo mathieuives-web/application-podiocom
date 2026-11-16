@@ -143,7 +143,10 @@ export async function syncEnableBanking(integration: { id: string; companyId: st
   // Première synchro : tout l'historique que la banque accepte de donner (souvent 13 à 24 mois).
   const from = integration.lastSyncAt ? new Date(integration.lastSyncAt.getTime() - 10 * 86400000) : new Date(Date.now() - 730 * 86400000);
   let transactions = 0;
+  const failures: string[] = [];
+  // Un compte lent ou en erreur côté banque ne bloque plus les autres (la banque répond parfois « timeout »).
   for (const a of creds.accounts) {
+   try {
     const details = await api<{ account_id?: { iban?: string }; name?: string; currency?: string }>(`/accounts/${a.uid}/details`).catch(() => null);
     const iban = a.iban ?? details?.account_id?.iban ?? null;
     const bal = await api<{ balances: { balance_amount: { amount: string }; balance_type: string }[] }>(`/accounts/${a.uid}/balances`).catch(() => ({ balances: [] }));
@@ -183,7 +186,12 @@ export async function syncEnableBanking(integration: { id: string; companyId: st
     for (let page = 0; page < 200; page++) {
       const q = new URLSearchParams({ date_from: from.toISOString().slice(0, 10) });
       if (key) q.set("continuation_key", key);
-      const r = await api<{ transactions: Tx[]; continuation_key?: string | null }>(`/accounts/${a.uid}/transactions?${q}`);
+      const path = `/accounts/${a.uid}/transactions?${q}`;
+      const r = await api<{ transactions: Tx[]; continuation_key?: string | null }>(path).catch(async (e) => {
+        if (!/\b(408|429|50[234])\b/.test((e as Error).message)) throw e;
+        await new Promise((res) => setTimeout(res, 5000)); // la banque est lente : un nouvel essai
+        return api<{ transactions: Tx[]; continuation_key?: string | null }>(path);
+      });
       for (const t of r.transactions ?? []) {
         if (t.status && t.status !== "BOOK") continue; // uniquement les opérations comptabilisées
         const dateStr = t.booking_date ?? t.value_date ?? t.transaction_date;
@@ -204,6 +212,12 @@ export async function syncEnableBanking(integration: { id: string; companyId: st
       if (!r.continuation_key) break;
       key = r.continuation_key;
     }
+   } catch (e) {
+    failures.push(`${a.name ?? a.iban ?? a.uid} : ${(e as Error).message.slice(0, 120)}`);
+   }
   }
+  if (failures.length === creds.accounts.length) throw new Error(`Banque ${creds.bank} indisponible pour le moment (nouvel essai dans une heure) — ${failures[0]}`);
+  await prisma.integration.update({ where: { id: integration.id }, data: { meta: failures.length ? JSON.stringify({ comptes_non_synchronises: failures }).slice(0, 2000) : null } });
+  if (failures.length) console.log(`[synchro] ${creds.bank} : ${failures.length} compte(s) non synchronisé(s) cette fois — ${failures.join(" | ").slice(0, 300)}`);
   return { accounts: creds.accounts.length, transactions, invoices: 0 };
 }

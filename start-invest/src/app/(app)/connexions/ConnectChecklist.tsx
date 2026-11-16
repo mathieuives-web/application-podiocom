@@ -33,7 +33,8 @@ const PLAN: { company: string; items: Item[] }[] = [
   {
     company: "Auto Rac Ives",
     items: [
-      { kind: "BANQUE", bank: /^cic\b|\bcic\b/i, bankLabel: "CIC" },
+      { kind: "BANQUE", bank: /cr[ée]dit mutuel de bretagne|\bcmb\b|arkea/i, bankLabel: "CMB" },
+      { kind: "BANQUE", bank: /^cic\b|\bcic\b/i, bankLabel: "CIC (2e compte)" },
       { kind: "IMAP", count: 1, hint: "l'adresse Gmail de l'atelier" },
       { kind: "ROBOT", provider: "GTAPRO", name: "GTA Pro (factures, devis, OR)" },
       { kind: "PORTAIL", name: "Autodata", url: "https://workshop.autodata-group.com/login", hint: "temps barème et valeurs constructeur" },
@@ -54,10 +55,11 @@ function Status({ ok, warn, children }: { ok: boolean; warn?: boolean; children:
 /** Liste « Tout connecter » affichée en haut de la page Connexions. */
 export default async function ConnectChecklist() {
   await ensureKnownPresence().catch(() => undefined);
-  const [companies, integrations, banks] = await Promise.all([
+  const [companies, integrations, banks, accounts] = await Promise.all([
     prisma.company.findMany({ where: { active: true } }),
     prisma.integration.findMany({ orderBy: { createdAt: "asc" } }),
     bankConfigured() ? listBanks().catch(() => []) : Promise.resolve([] as { name: string }[]),
+    prisma.bankAccount.findMany({ where: { excluded: false, provider: "BANQUE" }, include: { integration: true } }),
   ]);
   const connectedRobot = (i: (typeof integrations)[number]) => {
     try {
@@ -85,14 +87,22 @@ export default async function ConnectChecklist() {
         <ul className="space-y-3">
           {items.map((it, k) => {
             if (it.kind === "BANQUE") {
-              const list = mine.filter((i) => i.provider === "BANQUE");
-              const ok = count(list.some((i) => i.status === "OK"));
+              // Un seul accès bancaire peut ramener les comptes de plusieurs sociétés : on regarde les COMPTES de la société.
+              const accs = accounts.filter((a) => a.companyId === c.id && it.bank.test(a.bank ?? a.integration?.label ?? ""));
+              const failing = accs.find((a) => a.integration?.status === "ERROR");
+              const ok = count(accs.length > 0);
+              const last = accs.map((a) => a.lastSyncAt).filter((d): d is Date => Boolean(d)).sort((x, y) => y.getTime() - x.getTime())[0];
               const bank = banks.find((b) => it.bank.test(b.name))?.name ?? "";
               return (
-                <li key={k} className="flex flex-wrap items-center gap-2">
-                  <span className="w-56 text-sm">Banque {it.bankLabel}</span>
-                  <Status ok={ok}>{ok ? list.map((i) => i.label).join(", ") : "à connecter"}</Status>
-                  {!ok && (bankConfigured() ? <BankConnect companyId={c.id} banks={banks.map((b) => b.name)} initial={bank} /> : <Link className="underline text-xs" href="/connexions">configurer la banque</Link>)}
+                <li key={k} className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="w-56 text-sm">Banque {it.bankLabel}</span>
+                    <Status ok={ok && !failing} warn={Boolean(failing)}>
+                      {ok ? `${accs.length} compte(s)${last ? `, synchro ${last.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : ""}` : "à connecter"}
+                    </Status>
+                    {!ok && (bankConfigured() ? <BankConnect companyId={c.id} banks={banks.map((b) => b.name)} initial={bank} /> : <Link className="underline text-xs" href="/connexions">configurer la banque</Link>)}
+                  </div>
+                  {failing && <p className="text-xs text-amber-700 sm:ml-56">Dernière synchro en échec : {failing.integration?.lastError?.slice(0, 160)}. Les comptes restent connectés ; nouvel essai automatique chaque heure.</p>}
                 </li>
               );
             }
