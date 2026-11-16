@@ -154,7 +154,7 @@ export async function applyRules(companyId?: string) {
       changed++;
     }
   }
-  return changed;
+  return changed + (await matchVehicleFlows(companyId));
 }
 
 const Classification = z.object({
@@ -391,4 +391,50 @@ Une clé « entrées » reçoit une catégorie d'entrée, « sorties » une cat�
   const left = await prisma.bankTransaction.count({ where: { companyId, category: null, account: { excluded: false } } });
   console.log(`[comptabilite] ${company.name} reclassée : ${learned} libellé(s), ${applied} opération(s) modifiée(s), ${left} sans catégorie`);
   return { libelles: learned, operationsModifiees: applied, sansCategorie: left };
+}
+
+/**
+ * Négoce auto : une sortie d'argent du MONTANT EXACT du prix d'achat d'un véhicule d'Auto Cerfa, autour de sa date
+ * d'entrée en stock, EST l'achat de ce véhicule (quelle que soit la règle du libellé : virement à un particulier,
+ * enchères...). Idem pour l'encaissement du prix de vente autour de la date de vente. Basé sur les données réelles.
+ */
+export async function matchVehicleFlows(companyId?: string) {
+  const vehicles = await prisma.vehicle.findMany({
+    where: { ...(companyId ? { companyId } : {}), OR: [{ purchasePrice: { gt: 0 } }, { salePrice: { gt: 0 } }] },
+    select: { companyId: true, mode: true, purchasePrice: true, entryDate: true, salePrice: true, saleDate: true },
+  });
+  if (!vehicles.length) return 0;
+  const DAY = 86400000;
+  let changed = 0;
+  const used = new Set<string>();
+  const find = async (cid: string, amount: number, around: Date, sign: 1 | -1) => {
+    const list = await prisma.bankTransaction.findMany({
+      where: { companyId: cid, date: { gte: new Date(around.getTime() - 25 * DAY), lte: new Date(around.getTime() + 25 * DAY) }, amount: sign > 0 ? { gte: amount - 1, lte: amount + 1 } : { gte: -amount - 1, lte: -amount + 1 }, NOT: { category: INTERNAL } },
+      orderBy: { date: "asc" },
+    });
+    return list.filter((t) => !used.has(t.id)).sort((a, b) => Math.abs(a.date.getTime() - around.getTime()) - Math.abs(b.date.getTime() - around.getTime()))[0];
+  };
+  for (const v of vehicles) {
+    if (v.mode === "ACHAT" && v.purchasePrice && v.entryDate) {
+      const t = await find(v.companyId, v.purchasePrice, v.entryDate, -1);
+      if (t) {
+        used.add(t.id);
+        if (t.category !== "Achats de véhicules") {
+          await prisma.bankTransaction.update({ where: { id: t.id }, data: { category: "Achats de véhicules" } });
+          changed++;
+        }
+      }
+    }
+    if (v.salePrice && v.saleDate) {
+      const t = await find(v.companyId, v.salePrice, v.saleDate, 1);
+      if (t) {
+        used.add(t.id);
+        if (t.category !== "Ventes / encaissements clients") {
+          await prisma.bankTransaction.update({ where: { id: t.id }, data: { category: "Ventes / encaissements clients" } });
+          changed++;
+        }
+      }
+    }
+  }
+  return changed;
 }

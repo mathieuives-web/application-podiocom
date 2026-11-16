@@ -58,7 +58,7 @@ async function retryFailedRobots() {
   }
 }
 
-const REDO = [{ key: "redo:la-fabrique-automobile:v1", company: "La Fabrique Automobile" }];
+const REDO = [{ key: "redo:la-fabrique-automobile:v2", company: "La Fabrique Automobile" }];
 
 async function oneShotRedo() {
   const { redoCompany, projectMission } = await import("@/lib/daily-control");

@@ -40,9 +40,9 @@ function Company({ r, admin }: { r: CompanyResults; admin: boolean }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Kpi
           label={`Gagné en ${r.annee} (banque, hors prêts)`}
-          value={b.moisCouverts ? eur(b.resultatActivite) : "—"}
+          value={!b.resultatConnu ? "à calculer" : b.moisCouverts ? eur(b.resultatActivite) : "—"}
           sub={b.resultatMoyenParMois !== null ? `${eur(b.resultatMoyenParMois)} / mois sur ${b.moisCouverts} mois${b.financement.remboursementsEtPrelevementsDirigeant ? ` · après emprunts et prélèvements : ${eur(b.resultatActivite - b.financement.remboursementsEtPrelevementsDirigeant)}` : ""}` : "pas d'opérations"}
-          tone={b.resultatActivite >= 0 ? "good" : "bad"}
+          tone={!b.resultatConnu ? undefined : b.resultatActivite >= 0 ? "good" : "bad"}
         />
         <Kpi label="Entrées d'argent" value={eur(b.entrees)} />
         <Kpi label="Sorties d'argent" value={eur(b.sorties)} sub={b.stock.corrige ? `dont ${eur(b.stock.achatsVehiculesAnnee)} de véhicules achetés ; ${eur(b.stock.prixAchatDesVendus)} pour ceux vendus` : undefined} />
@@ -135,7 +135,8 @@ export default async function ResultatsPage({ searchParams }: { searchParams: Pr
   const admin = isAdmin(me.role);
   const year = new Date().getFullYear();
   const all = await groupResults(year);
-  const total = all.reduce((s, r) => s + (r.banque.moisCouverts ? r.banque.resultatActivite : 0), 0);
+  const total = all.reduce((s, r) => s + (r.banque.moisCouverts && r.banque.resultatConnu ? r.banque.resultatActivite : 0), 0);
+  const unknown = all.filter((r) => r.banque.moisCouverts && !r.banque.resultatConnu).map((r) => r.societe);
   return (
     <div className="space-y-6">
       <div>
@@ -145,7 +146,7 @@ export default async function ResultatsPage({ searchParams }: { searchParams: Pr
           « Gagné » = argent entré − argent sorti, sans compter les prêts reçus, les remboursements d&apos;emprunt, vos prélèvements ni les virements entre vos sociétés.
           Pour le négoce auto, une voiture achetée n&apos;est comptée qu&apos;une fois vendue (à son prix d&apos;achat Auto Cerfa). Un solde négatif dans la limite du découvert autorisé est normal.
         </p>
-        <p className="mt-2 text-sm">Groupe, {year} : <strong className={total >= 0 ? "text-emerald-700" : "text-red-700"}>{eur(total)}</strong></p>
+        <p className="mt-2 text-sm">Groupe, {year} : <strong className={total >= 0 ? "text-emerald-700" : "text-red-700"}>{eur(total)}</strong>{unknown.length > 0 && <span className="text-amber-700"> (sans {unknown.join(", ")} : résultat à calculer)</span>}</p>
       </div>
       {msg && <p className="card text-sm bg-sky-50 border-sky-200 text-sky-900">{msg}</p>}
       {all.map((r) => <Company key={r.societe} r={r} admin={admin} />)}

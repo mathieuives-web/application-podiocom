@@ -69,6 +69,7 @@ export default async function AujourdhuiPage() {
           <p className="text-xs text-slate-500">
             entrées {eur(t.inflow)}
             {t.stockBuys > 0 ? ` · ${eur(t.stockBuys)} de véhicules achetés pour le stock (pas une perte : comptés à la vente)` : ""}
+            {t.unknown.length > 0 && <span className="block text-amber-700">sans {t.unknown.join(", ")} : résultat à calculer (voir ci-dessous)</span>}
           </p>
         </div>
       </section>
@@ -122,7 +123,12 @@ export default async function AujourdhuiPage() {
                 {c.overdraftLimit > 0 && <span className="block text-xs text-slate-500">découvert autorisé {eur(c.overdraftLimit)} · reste {eur(c.available)}</span>}
               </span>
               <span className="text-right">
-                <b className={c.available < 0 ? "text-red-700" : ""}>{eur(c.cash)}</b> <span className={`text-xs ${c.net >= 0 ? "text-emerald-700" : "text-red-700"}`}>{c.net >= 0 ? "+" : ""}{eur(c.net)}</span>
+                <b className={c.available < 0 ? "text-red-700" : ""}>{eur(c.cash)}</b>{" "}
+                {c.resultKnown ? (
+                  <span className={`text-xs ${c.net >= 0 ? "text-emerald-700" : "text-red-700"}`}>{c.net >= 0 ? "+" : ""}{eur(c.net)}</span>
+                ) : (
+                  <span className="block text-xs text-amber-700">résultat à calculer : {c.unknownReason}</span>
+                )}
                 {c.stockBuys > 0 && <span className="block text-xs text-slate-500">{c.soldCount} vendu(s), {eur(c.stockBuys)} achetés en stock{c.soldWithoutPrice ? ` · ${c.soldWithoutPrice} sans prix d'achat dans Auto Cerfa` : ""}</span>}
               </span>
             </li>

@@ -39,6 +39,8 @@ export async function companyResults(companyId: string, year = new Date().getFul
   const soldYear = vehicles.filter((v) => v.status === "VENDU" && v.mode === "ACHAT" && v.saleDate && v.saleDate >= yStart && v.saleDate < yEnd);
   const costOfSold = soldYear.reduce((s, v) => s + (v.purchasePrice ?? 0), 0);
   const stockAdjusted = stockBuys > 0 && soldYear.length > 0;
+  const dealer = vehicles.length > 0 || company.name === "La Fabrique Automobile";
+  const resultatConnu = !dealer || stockAdjusted;
   const activiteEntrees = cash.totalEntrees.total - finIn;
   const activiteSorties = cash.totalSorties.total - finOut - (stockAdjusted ? stockBuys - costOfSold : 0);
   const months = cash.monthsWithData.length;
@@ -58,6 +60,7 @@ export async function companyResults(companyId: string, year = new Date().getFul
     principalesEntrees: cash.entrees.slice(0, 6).map((x) => ({ categorie: x.category, montant: x.total })),
     operationsNonClassees: uncategorized,
     stock: { achatsVehiculesAnnee: r2(stockBuys), prixAchatDesVendus: r2(costOfSold), corrige: stockAdjusted },
+    resultatConnu,
     loyersPercus: r2(sum(cash.entrees, ["Loyers perçus"])),
     loyersPayes: r2(sum(cash.sorties, ["Loyer"])),
   };
@@ -109,6 +112,7 @@ export async function companyResults(companyId: string, year = new Date().getFul
   if (vehicules && vehicules.ventesSansMargeConnue > 0) manques.push(`${vehicules.ventesSansMargeConnue} vente(s) sans prix d'achat ou de reversement dans Auto Cerfa : marge inconnue pour celles-ci.`);
   if (company.name === "Auto Rac Ives" && !invoices.some((i) => i.provider === "GTAPRO")) manques.push("Factures GTA Pro pas encore lues : nombre de factures de l'atelier inconnu.");
   if (!statements.length) manques.push("Aucun bilan archivé.");
+  if (!resultatConnu) manques.push(soldYear.length ? "Achats de véhicules non retrouvés dans la banque (prix d'achat Auto Cerfa ≠ montants payés ?) : résultat non calculable, la banque seule compterait le stock comme une perte." : "Ventes de véhicules de l'année absentes d'Auto Cerfa : résultat non calculable (acheter du stock n'est pas une perte).");
 
   const redo = await prisma.appSetting.findUnique({ where: { key: `remise-a-plat:${companyId}` } });
   const redoInfo = redo ? (JSON.parse(redo.value) as { at: string; classement?: { erreur?: string } }) : null;

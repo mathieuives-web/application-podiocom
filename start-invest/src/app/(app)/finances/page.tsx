@@ -125,11 +125,11 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
                 {!c.hasData ? (
                   <p className="text-sm text-amber-700 font-medium">Aucune banque connectée</p>
                 ) : (
-                  <p className={`text-sm font-bold ${c.profitable ? "text-emerald-700" : "text-red-700"}`}>
-                    {c.profitable ? "✅ Gagne de l'argent" : "❌ Perd de l'argent"} · {eur(c.net)} sur 30 j
+                  <p className={`text-sm font-bold ${!c.resultKnown ? "text-amber-700" : c.profitable ? "text-emerald-700" : "text-red-700"}`}>
+                    {!c.resultKnown ? `Résultat à calculer (${c.unknownReason})` : c.profitable ? "✅ Gagne de l'argent" : "❌ Perd de l'argent"}{c.resultKnown ? ` · ${eur(c.net)} sur 30 j` : ""}
                   </p>
                 )}
-                {c.hasData && <p className="text-xs text-slate-500">Mois en cours : {eur(c.monthNet)}</p>}
+                {c.hasData && c.resultKnown && <p className="text-xs text-slate-500">Mois en cours : {eur(c.monthNet)}</p>}
                 {report?.output ? (
                   <p className="text-xs text-slate-700 whitespace-pre-wrap line-clamp-6 pt-1 border-t border-slate-100">{report.output}</p>
                 ) : (
@@ -252,7 +252,7 @@ export default async function FinancesPage({ searchParams }: { searchParams: Pro
                 <td className={c.lateInvoices ? "text-red-700 font-medium" : ""}>{c.lateInvoices ? `${c.lateInvoices} · ${eur(c.receivablesLate)}` : "—"}</td>
                 <td>{eur(c.payables)}</td>
                 <td className={`text-xs font-medium ${!c.hasData ? "text-slate-400" : c.profitable ? "text-emerald-700" : "text-red-700"}`}>
-                  {!c.hasData ? "—" : c.profitable ? "✅ gagne" : "❌ perd"}
+                  {!c.hasData ? "—" : !c.resultKnown ? "à calculer" : c.profitable ? "✅ gagne" : "❌ perd"}
                 </td>
                 <td className="text-xs text-slate-500">{c.lastSync ? fmt(new Date(c.lastSync)) : "jamais"}</td>
               </tr>
