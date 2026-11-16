@@ -79,7 +79,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
       log.push(`Rapports DAF : ${reports.length}`);
 
       // Secrétariat : tri des e-mails, du Drive et des messages WhatsApp, pour chaque société connectée.
-      const connected = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "OUTLOOK", "WHATSAPP"] }, status: { not: "ERROR" } }, select: { companyId: true } });
+      const connected = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "OUTLOOK", "IMAP", "WHATSAPP"] }, status: { not: "ERROR" } }, select: { companyId: true } });
       for (const c of companies.filter((x) => connected.some((i) => i.companyId === x.id))) {
         // Courrier atelier (Auto Rac'Ives) en plus du secrétariat quand la société en a un.
         for (const courrier of agents.filter((a) => a.slug.startsWith("courrier-") && a.structure === c.name)) {

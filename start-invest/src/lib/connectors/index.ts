@@ -81,6 +81,20 @@ export const PROVIDERS: ProviderDef[] = [
     available: true,
   },
   {
+    id: "IMAP",
+    name: "Boîte mail (Gmail, Orange, Free, OVH, Ionos...) — identifiant + mot de passe",
+    kind: "Gestion",
+    description:
+      "Le plus simple : l'adresse et le mot de passe de la boîte, rien d'autre à créer. Gmail : utilisez un « mot de passe d'application » (myaccount.google.com/apppasswords, 16 lettres, la validation en deux étapes doit être activée). Le Secrétariat (ou le Courrier atelier) la trie chaque matin, range, signale l'urgent et enregistre les factures reçues. Ni envoi, ni suppression.",
+    fields: [
+      { name: "email", label: "Adresse e-mail", placeholder: "contact@..." },
+      { name: "password", label: "Mot de passe (Gmail : mot de passe d'application)", secret: true },
+      { name: "host", label: "Serveur IMAP (facultatif, trouvé tout seul)", optional: true, placeholder: "imap.gmail.com" },
+    ],
+    docs: "Une boîte = une connexion, sur la société à qui elle appartient (plusieurs boîtes par société possibles).",
+    available: true,
+  },
+  {
     id: "OUTLOOK",
     name: "Outlook / Hotmail / Microsoft 365",
     kind: "Gestion",
@@ -193,6 +207,10 @@ export async function syncIntegration(integrationId: string, opts: { force?: boo
       result = { accounts: 0, transactions: 0, invoices: 0 };
     } else if (integ.provider === "GOOGLE") {
       await googleClient(integ.id).then((g) => g.call("https://www.googleapis.com/oauth2/v3/userinfo"));
+      result = { accounts: 0, transactions: 0, invoices: 0 };
+    } else if (integ.provider === "IMAP") {
+      const { checkImap } = await import("./imap");
+      await checkImap(creds as unknown as import("./imap").ImapCreds);
       result = { accounts: 0, transactions: 0, invoices: 0 };
     } else if (integ.provider === "PORTAIL") {
       // Consulté à la demande par les agents (consulter_portail) : rien à synchroniser.

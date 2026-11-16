@@ -14,19 +14,20 @@ import { GTAPRO_DEFAULT_URL } from "@/lib/connectors/gtapro";
 
 export async function addIntegration(formData: FormData) {
   const me = await requireAdmin();
+  const backTo = formData.get("back") === "/tout-connecter" ? "/tout-connecter" : "/connexions";
   const provider = PROVIDERS.find((p) => p.id === formData.get("provider") && p.available);
   if (!provider) throw new Error("Connecteur indisponible.");
   const creds: Record<string, string> = {};
   for (const f of provider.fields) {
     const v = (formData.get(f.name) ?? "").toString().trim();
-    if (!v && !f.optional) redirect(`/connexions?msg=${encodeURIComponent(`Champ manquant : ${f.label}`)}`);
+    if (!v && !f.optional) redirect(`${backTo}?msg=${encodeURIComponent(`Champ manquant : ${f.label}`)}`);
     if (v) creds[f.name] = v;
   }
   const integ = await prisma.integration.create({
     data: {
       companyId: (formData.get("companyId") ?? "").toString(),
       provider: provider.id,
-      label: provider.id === "PORTAIL" ? creds.name?.slice(0, 80) ?? "Portail" : (formData.get("label") ?? "").toString().trim() || null,
+      label: provider.id === "PORTAIL" ? creds.name?.slice(0, 80) ?? "Portail" : provider.id === "IMAP" ? creds.email?.toLowerCase().slice(0, 120) ?? null : (formData.get("label") ?? "").toString().trim() || null,
       credentials: encryptJson(creds),
     },
   });
@@ -38,7 +39,7 @@ export async function addIntegration(formData: FormData) {
       redirect(`/connexions/direct?sid=${sid}&nom=${encodeURIComponent(creds.name ?? "le portail")}`);
     }
     revalidatePath("/connexions");
-    redirect(`/connexions?msg=${encodeURIComponent(`${creds.name} enregistré : les agents peuvent maintenant y chercher des informations.`)}`);
+    redirect(`${backTo}?msg=${encodeURIComponent(`${creds.name} enregistré : les agents peuvent maintenant y chercher des informations.`)}`);
   }
   const site = ROBOT_SITES[provider.id];
   if (site && !creds.password) {
@@ -60,8 +61,9 @@ export async function addIntegration(formData: FormData) {
     msg = `${provider.name} enregistré mais la synchronisation a échoué : ${(e as Error).message}`;
   }
   revalidatePath("/connexions");
+  revalidatePath("/tout-connecter");
   revalidatePath("/finances");
-  redirect(`/connexions?msg=${encodeURIComponent(msg)}`);
+  redirect(`${backTo}?msg=${encodeURIComponent(msg)}`);
 }
 
 export async function syncNow(integrationId: string) {
@@ -116,13 +118,14 @@ export async function finishDirect(sid: string) {
   await audit(me, "connexion_directe_enregistree", integrationId);
   after(() => syncIntegration(integrationId, { force: true }).then(() => undefined).catch(() => undefined));
   revalidatePath("/connexions");
-  redirect(`/connexions?msg=${encodeURIComponent("Session enregistrée. Le robot récupère maintenant le stock et les ventes (2 à 5 minutes), puis le refera chaque matin. Rechargez la page pour voir le résultat.")}`);
+  revalidatePath("/tout-connecter");
+  redirect(`/tout-connecter?msg=${encodeURIComponent("Session enregistrée : c'est connecté. Le robot fait sa première lecture maintenant (2 à 5 minutes), puis travaille tout seul chaque jour.")}`);
 }
 
 export async function cancelDirect(sid: string) {
   const me = await requireAdmin();
   await cancelLive(sid, me.id).catch(() => undefined);
-  redirect("/connexions");
+  redirect("/tout-connecter");
 }
 
 const PRESENCE = ["website", "instagram", "facebook", "tiktok", "googleBusiness", "linkedin"] as const;
@@ -139,4 +142,24 @@ export async function setPresence(companyId: string, formData: FormData) {
   const c = await prisma.company.update({ where: { id: companyId }, data });
   await audit(me, "presence_en_ligne", c.name);
   revalidatePath("/connexions");
+}
+
+/**
+ * Connexion en un clic depuis « Tout connecter » : crée la connexion prévue pour la société (si elle n'existe pas)
+ * et ouvre la fenêtre en direct où le fondateur tape ses identifiants.
+ */
+export async function quickConnect(provider: string, companyName: string, label?: string, url?: string) {
+  const me = await requireAdmin();
+  if (!["AUTOCERFA", "GTAPRO", "PORTAIL"].includes(provider)) throw new Error("Connexion directe indisponible.");
+  const company = await prisma.company.findFirstOrThrow({ where: { name: companyName } });
+  let integ = await prisma.integration.findFirst({ where: { provider, companyId: company.id, ...(provider === "PORTAIL" ? { label } : {}) } });
+  if (!integ) {
+    integ = await prisma.integration.create({
+      data: { companyId: company.id, provider, label: provider === "PORTAIL" ? label ?? "Portail" : null, credentials: encryptJson(provider === "PORTAIL" ? { name: label, url, purpose: label === "Autodata" ? "temps de main-d'œuvre et valeurs constructeur" : undefined } : url ? { url } : {}) },
+    });
+    await audit(me, "connexion_outil_ajoutee", `${provider} ${label ?? ""} — ${company.name}`);
+  }
+  const site = ROBOT_SITES[provider] ?? { name: label ?? "le portail", url: url ?? "" };
+  const sid = await startLive(integ.id, me.id, site.url);
+  redirect(`/connexions/direct?sid=${sid}&nom=${encodeURIComponent(site.name)}`);
 }

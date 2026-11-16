@@ -4,6 +4,7 @@ import { auth, signOut } from "@/auth";
 import { isAdmin } from "@/lib/session";
 
 const LINKS = [
+  { href: "/tout-connecter", label: "★ Tout connecter", admin: true },
   { href: "/mise-en-route", label: "Mise en route" },
   { href: "/agents", label: "Board d'agents IA" },
   { href: "/finances", label: "Finances" },

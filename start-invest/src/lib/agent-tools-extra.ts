@@ -6,6 +6,7 @@ import type { AgentDef } from "@/lib/agents";
 import { repoFile, repoStatus } from "@/lib/connectors/github";
 import { outlookAttachments, outlookOrganize, outlookRead, outlookSearch } from "@/lib/connectors/microsoft";
 import { gmailAttachments } from "@/lib/connectors/google";
+import { imapAttachments, imapOrganize, imapRead, imapSearch } from "@/lib/connectors/imap";
 import { driveCreateFolder, driveList, driveMove, gmailOrganize, gmailRead, gmailSearch } from "@/lib/connectors/google";
 
 // Outils supplémentaires du board : présence en ligne (sites, réseaux sociaux, référencement),
@@ -245,11 +246,11 @@ async function scopeCompany(agent: AgentDef, name?: string) {
 async function mailFor(agent: AgentDef, name?: string, boite?: string) {
   const c = await scopeCompany(agent, name);
   if (!c) throw new Error("Précise la société.");
-  const list = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "OUTLOOK"] }, companyId: c.id } });
-  if (!list.length) throw new Error(`Aucune boîte mail connectée pour ${c.name} : à faire dans Connexions (Google ou Outlook).`);
+  const list = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "OUTLOOK", "IMAP"] }, companyId: c.id } });
+  if (!list.length) throw new Error(`Aucune boîte mail connectée pour ${c.name} : à faire dans Connexions (boîte mail).`);
   const i = boite ? list.find((x) => x.label?.toLowerCase() === boite.toLowerCase()) : list.length === 1 ? list[0] : null;
   if (!i) throw new Error(`Précise la boîte (paramètre « boite ») parmi : ${list.map((x) => x.label).join(", ")}`);
-  return { id: i.id, provider: i.provider as "GOOGLE" | "OUTLOOK", label: i.label, company: c };
+  return { id: i.id, provider: i.provider as "GOOGLE" | "OUTLOOK" | "IMAP", label: i.label, company: c };
 }
 
 async function googleFor(agent: AgentDef, name?: string, boite?: string) {
@@ -483,15 +484,17 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
     }
     case "boites_mail": {
       const c = await scopeCompany(agent, soc);
-      const list = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "OUTLOOK"] }, ...(c ? { companyId: c.id } : {}) }, include: { company: { select: { name: true } } } });
-      return list.map((x) => ({ boite: x.label, type: x.provider === "GOOGLE" ? "Gmail" : "Outlook", societe: x.company.name, etat: x.status }));
+      const list = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "OUTLOOK", "IMAP"] }, ...(c ? { companyId: c.id } : {}) }, include: { company: { select: { name: true } } } });
+      return list.map((x) => ({ boite: x.label, type: x.provider === "GOOGLE" ? "Gmail (API)" : x.provider === "OUTLOOK" ? "Outlook" : "IMAP (recherche : from:, subject:, depuis:N, non-lus, texte)", societe: x.company.name, etat: x.status }));
     }
     case "mails_rechercher": {
       const m = await mailFor(agent, soc, boite);
+      if (m.provider === "IMAP") return imapSearch(m.id, String(input.recherche ?? "").replace(/in:inbox|newer_than:(\d+)d/g, (x, n) => (n ? `depuis:${n}` : "")), Number(input.max) || 30);
       return m.provider === "OUTLOOK" ? outlookSearch(m.id, String(input.recherche ?? ""), Number(input.max) || 30) : gmailSearch(m.id, String(input.recherche || "in:inbox newer_than:3d"), Number(input.max) || 30);
     }
     case "mail_lire": {
       const m = await mailFor(agent, soc, boite);
+      if (m.provider === "IMAP") return imapRead(m.id, String(input.id));
       return m.provider === "OUTLOOK" ? outlookRead(m.id, String(input.id)) : gmailRead(m.id, String(input.id));
     }
     case "mail_enregistrer_facture": {
@@ -507,7 +510,7 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
         if (found.id !== m.company.id && m.company.name !== "Start Invest") throw new Error(`Cette boîte appartient à ${m.company.name} : pas de facture pour une autre société.`);
         target = found;
       }
-      const files = (m.provider === "OUTLOOK" ? await outlookAttachments(m.id, String(input.id)) : await gmailAttachments(m.id, String(input.id))).filter((f) => /pdf|image\/(jpe?g|png|webp)/i.test(f.mime) || /\.(pdf|jpe?g|png|webp)$/i.test(f.name));
+      const files = (m.provider === "IMAP" ? await imapAttachments(m.id, String(input.id)) : m.provider === "OUTLOOK" ? await outlookAttachments(m.id, String(input.id)) : await gmailAttachments(m.id, String(input.id))).filter((f) => /pdf|image\/(jpe?g|png|webp)/i.test(f.mime) || /\.(pdf|jpe?g|png|webp)$/i.test(f.name));
       if (!files.length) throw new Error("Aucune pièce jointe PDF ou photo dans cet e-mail.");
       const { saveDocument, processDocument } = await import("@/lib/documents");
       const out = [];
@@ -529,6 +532,7 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
     case "mail_ranger": {
       if (!isSecretariat(agent)) throw new Error("Réservé aux agents Secrétariat.");
       const m = await mailFor(agent, soc, boite);
+      if (m.provider === "IMAP") return imapOrganize(m.id, String(input.id), { dossier: (input.libelle as string | undefined) ?? (input.archiver ? "Traité" : undefined), marquerLu: Boolean(input.marquer_lu), important: Boolean(input.important) });
       if (m.provider === "OUTLOOK") return outlookOrganize(m.id, String(input.id), { dossier: (input.libelle as string | undefined) ?? (input.archiver ? "Traité" : undefined), marquerLu: Boolean(input.marquer_lu), important: Boolean(input.important) });
       return gmailOrganize(m.id, String(input.id), { libelle: input.libelle as string | undefined, archiver: Boolean(input.archiver), marquerLu: Boolean(input.marquer_lu), important: Boolean(input.important) });
     }
