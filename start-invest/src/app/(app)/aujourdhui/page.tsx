@@ -1,3 +1,4 @@
+import { humanError, needsUserAction } from "@/lib/human-error";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { isAdmin, requireUser } from "@/lib/session";
@@ -58,13 +59,13 @@ export default async function AujourdhuiPage() {
       </section>
 
       <section className="space-y-2">
-        {broken.map((i) => <Alert key={i.id} tone="red" href="/connexions">Connexion en erreur : {i.label ?? i.provider} ({i.company.name})</Alert>)}
+        {broken.filter((i) => needsUserAction(i.lastError)).map((i) => <Alert key={i.id} tone="red" href="/connexions">{i.label ?? i.provider} ({i.company.name}) : {humanError(i.lastError)}</Alert>)}
         {tight.map((x) => <Alert key={x} tone="red" href="/finances">{x}</Alert>)}
         {t.receivablesLate > 0 && <Alert tone="amber" href="/finances">Factures clients en retard : {eur(t.receivablesLate)}</Alert>}
         {drafts > 0 && admin && <Alert tone="amber" href="/atelier">{drafts} devis / OR à valider ou en erreur</Alert>}
         {terrain.length > 0 && <Alert tone={urgent ? "red" : "sky"} href="/terrain">{terrain.length} message(s) WhatsApp à traiter{urgent ? `, dont ${urgent} urgent(s)` : ""}</Alert>}
         {commissions > 0 && <Alert tone="sky" href="/equipe">Commissions à verser ({previousMonth()}) : {eur(commissions)}</Alert>}
-        {!broken.length && !tight.length && !t.receivablesLate && !drafts && !terrain.length && <p className="text-sm text-emerald-700">✅ Rien d&apos;urgent pour l&apos;instant.</p>}
+        {!broken.filter((i) => needsUserAction(i.lastError)).length && !tight.length && !t.receivablesLate && !drafts && !terrain.length && <p className="text-sm text-emerald-700">✅ Rien d&apos;urgent pour l&apos;instant.</p>}
       </section>
 
       <section className="rounded-xl bg-white border p-4 space-y-2">

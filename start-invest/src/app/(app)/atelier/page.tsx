@@ -1,3 +1,4 @@
+import { humanError } from "@/lib/human-error";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
@@ -55,7 +56,7 @@ export default async function AtelierPage({ searchParams }: { searchParams: Prom
           GTA Pro n&apos;est pas connecté : <Link href="/connexions" className="underline">Connexions → GTA Pro</Link> (société Auto Rac Ives), puis « se connecter moi-même ».
         </p>
       )}
-      {integ?.lastError && <p className="card text-sm bg-red-50 border-red-200 text-red-900">GTA Pro : {integ.lastError}</p>}
+      {integ?.lastError && <p className="card text-sm bg-red-50 border-red-200 text-red-900">GTA Pro : {humanError(integ.lastError)}</p>}
 
       <section className="card space-y-3">
         <h2 className="font-semibold">Planning des 7 prochains jours</h2>

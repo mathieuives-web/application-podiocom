@@ -1,3 +1,4 @@
+import { humanError } from "@/lib/human-error";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { decryptJson } from "@/lib/crypto";
@@ -102,7 +103,7 @@ export default async function ConnectChecklist() {
                     </Status>
                     {!ok && (bankConfigured() ? <BankConnect companyId={c.id} banks={banks.map((b) => b.name)} initial={bank} /> : <Link className="underline text-xs" href="/connexions">configurer la banque</Link>)}
                   </div>
-                  {failing && <p className="text-xs text-amber-700 sm:ml-56">Dernière synchro en échec : {failing.integration?.lastError?.slice(0, 160)}. Les comptes restent connectés ; nouvel essai automatique chaque heure.</p>}
+                  {failing && <p className="text-xs text-amber-700 sm:ml-56">{humanError(failing.integration?.lastError)} Les comptes restent connectés.</p>}
                 </li>
               );
             }
@@ -115,7 +116,7 @@ export default async function ConnectChecklist() {
                     <span className="w-56 text-sm">Boîtes mail ({boxes.length}/{it.count})</span>
                     <Status ok={ok} warn={boxes.length > 0}>{boxes.map((b) => `${b.label}${b.status === "ERROR" ? " (erreur)" : ""}`).join(", ") || `à connecter : ${it.hint}`}</Status>
                   </div>
-                  {boxes.filter((b) => b.lastError).map((b) => <p key={b.id} className="text-xs text-red-700 ml-56">{b.label} : {b.lastError}</p>)}
+                  {boxes.filter((b) => b.lastError).map((b) => <p key={b.id} className="text-xs text-red-700 ml-56">{b.label} : {humanError(b.lastError)}</p>)}
                   {boxes.length < it.count && (
                     <form action={addIntegration} className="flex flex-wrap gap-2 items-center ml-0 sm:ml-56">
                       <input type="hidden" name="provider" value="IMAP" />
@@ -136,7 +137,7 @@ export default async function ConnectChecklist() {
               return (
                 <li key={k} className="flex flex-wrap items-center gap-2">
                   <span className="w-56 text-sm">{it.name}</span>
-                  <Status ok={ok} warn={Boolean(i && connectedRobot(i))}>{ok ? `connecté${i?.lastSyncAt ? `, lu le ${i.lastSyncAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : ""}` : i?.lastError ?? "à connecter"}</Status>
+                  <Status ok={ok} warn={Boolean(i && connectedRobot(i))}>{ok ? `connecté${i?.lastSyncAt ? `, lu le ${i.lastSyncAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : ""}` : i?.lastError ? humanError(i.lastError) : "à connecter"}</Status>
                   <form action={quickConnect.bind(null, it.provider, company, undefined, undefined)}><button className="btn-primary text-xs">{ok ? "Se reconnecter" : "Se connecter"}</button></form>
                   {i && connectedRobot(i) && <form action={syncNow.bind(null, i.id)}><button className="text-xs underline">lire maintenant</button></form>}
                   <details className="w-full sm:ml-56 text-xs">
@@ -157,7 +158,7 @@ export default async function ConnectChecklist() {
               return (
                 <li key={k} className="flex flex-wrap items-center gap-2">
                   <span className="w-56 text-sm">{it.name} <span className="text-xs text-slate-500">({it.hint})</span></span>
-                  <Status ok={ok}>{ok ? "connecté" : i?.lastError ?? "à connecter"}</Status>
+                  <Status ok={ok}>{ok ? "connecté" : i?.lastError ? humanError(i.lastError) : "à connecter"}</Status>
                   <form action={quickConnect.bind(null, "PORTAIL", company, it.name, it.url)}><button className="btn-primary text-xs">{ok ? "Se reconnecter" : "Se connecter"}</button></form>
                   <details className="w-full sm:ml-56 text-xs">
                     <summary className="cursor-pointer underline">Enregistrer identifiant + mot de passe (le robot se connecte seul)</summary>
@@ -202,7 +203,7 @@ export default async function ConnectChecklist() {
                 <li key={k} className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="w-56 text-sm">WhatsApp{it.number ? ` ${it.number}` : ""}</span>
-                    <Status ok={ok}>{ok ? i?.label ?? "connecté" : i?.lastError ?? "à connecter"}</Status>
+                    <Status ok={ok}>{ok ? i?.label ?? "connecté" : i?.lastError ? humanError(i.lastError) : "à connecter"}</Status>
                   </div>
                   {!ok && (
                     <details className="sm:ml-56 text-xs">

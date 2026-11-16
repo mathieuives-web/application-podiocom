@@ -1,3 +1,4 @@
+import { humanError } from "@/lib/human-error";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { PROVIDERS } from "@/lib/connectors";
@@ -66,7 +67,7 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                     <span className={`text-xs px-2 py-1 rounded-full ${i.status === "OK" ? "badge-ok" : i.status === "ERROR" ? "badge-expired" : "badge-warning"}`}>
                       {i.status === "OK" ? "Connecté" : i.status === "ERROR" ? "Erreur" : "En attente"}
                     </span>
-                    {i.lastError && <p className="text-xs text-red-700 mt-1 max-w-xs">{i.lastError}</p>}
+                    {i.lastError && <p className="text-xs text-red-700 mt-1 max-w-xs">{humanError(i.lastError)}</p>}
                   </td>
                   <td className="text-xs text-slate-500">{i._count.bankAccounts} compte(s) · {i._count.invoices} facture(s)</td>
                   <td className="text-xs">{i.lastSyncAt ? fmt(i.lastSyncAt) : "—"}</td>

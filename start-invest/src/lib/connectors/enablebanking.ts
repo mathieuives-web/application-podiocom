@@ -216,7 +216,7 @@ export async function syncEnableBanking(integration: { id: string; companyId: st
     failures.push(`${a.name ?? a.iban ?? a.uid} : ${(e as Error).message.slice(0, 120)}`);
    }
   }
-  if (failures.length === creds.accounts.length) throw new Error(`Banque ${creds.bank} indisponible pour le moment (nouvel essai dans une heure) — ${failures[0]}`);
+  if (failures.length === creds.accounts.length) throw new Error(`Banque ${creds.bank} indisponible pour le moment (nouvel essai automatique plus tard) — ${failures[0]}`);
   await prisma.integration.update({ where: { id: integration.id }, data: { meta: failures.length ? JSON.stringify({ comptes_non_synchronises: failures }).slice(0, 2000) : null } });
   if (failures.length) console.log(`[synchro] ${creds.bank} : ${failures.length} compte(s) non synchronisé(s) cette fois — ${failures.join(" | ").slice(0, 300)}`);
   return { accounts: creds.accounts.length, transactions, invoices: 0 };

@@ -3,10 +3,10 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { agentsConfigured } from "@/lib/agent-runtime";
-import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
 import { bankConfigured } from "@/lib/connectors/enablebanking";
 import { smtpConfigured } from "@/lib/reminders";
 import { loadAgents } from "@/lib/agents";
+import { humanError, needsUserAction } from "@/lib/human-error";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,7 @@ export default async function MiseEnRoutePage() {
     prisma.user.findUniqueOrThrow({ where: { id: me.id } }),
     prisma.company.findMany({
       where: { active: true },
-      include: { integrations: true, bankAccounts: true, statements: true, documents: true, _count: { select: { invoices: true } } },
+      include: { integrations: true, bankAccounts: { where: { excluded: false }, include: { integration: true } }, statements: true, documents: true, _count: { select: { invoices: true } } },
       orderBy: { name: "asc" },
     }),
     loadAgents(),
@@ -57,7 +57,7 @@ export default async function MiseEnRoutePage() {
   const services: Check[] = [
     { ok: agentsConfigured(), label: "Agents IA activés (ANTHROPIC_API_KEY)", help: "Clé à créer sur console.anthropic.com, avec une limite de dépense mensuelle." },
     { ok: bankConfigured(), label: "Connexion bancaire configurée (Enable Banking : Shine et toutes les banques)", help: <Link href="/connexions" className="underline">Étapes dans Connexions → carte Banque</Link> },
-    { ok: shineMcpAvailable() ? "warn" : false, label: "Shine Facture (factures) : seulement avec un abonnement Shine Facture actif", help: "Facultatif. Sans Shine Facture, déposez vos exports de factures dans Archives." },
+    { ok: "warn", label: "Shine Facture (factures) : seulement avec un abonnement Shine Facture actif", help: "Facultatif. Sans Shine Facture, déposez vos exports de factures dans Archives." },
     { ok: smtpConfigured() ? true : "warn", label: "Envoi des relances par e-mail (SMTP)", help: "Sans SMTP, les relances sont préparées en brouillon. Si Shine Facture relance déjà vos clients, ce n'est pas bloquant." },
     { ok: process.env.SCHEDULER !== "off", label: `Contrôle automatique chaque matin à ${hour} h (heure de Paris)`, help: "Retirez SCHEDULER=off, ou appelez /api/cron/daily depuis un planificateur." },
     {
@@ -82,21 +82,26 @@ export default async function MiseEnRoutePage() {
       <section className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {companies.map((c) => {
           const daf = agents.find((a) => a.slug.startsWith("daf-") && a.structure === c.name);
-          const bank = c.integrations.find((i) => ["BANQUE", "QONTO"].includes(i.provider) && i.status === "OK") ?? c.integrations.find((i) => ["BANQUE", "QONTO"].includes(i.provider));
-          const invoicing = c.integrations.find((i) => ["SHINE", "PENNYLANE"].includes(i.provider)) || c._count.invoices > 0;
+          // Banque : on regarde les COMPTES de la société (un seul accès CMB ramène les comptes de plusieurs sociétés).
+          const synced = c.bankAccounts.filter((a) => a.integration);
+          const failing = synced.find((a) => a.integration?.status === "ERROR");
+          const lastSync = synced.map((a) => a.lastSyncAt).filter((d): d is Date => Boolean(d)).sort((x, y) => y.getTime() - x.getTime())[0];
+          const banks = [...new Set(synced.map((a) => a.bank ?? a.integration?.label ?? "banque"))].join(", ");
+          const invoicing = c.integrations.some((i) => ["SHINE", "PENNYLANE"].includes(i.provider) && i.status === "OK") || c._count.invoices > 0;
           const years = c.statements.map((s) => s.year).sort();
           const releves = c.documents.filter((d) => d.type === "RELEVE" && d.status === "DONE").length;
-          const holding = !daf;
           const checks: Check[] = [
             ...(daf ? [{ ok: true, label: `Directeur financier : ${daf.title}` } as Check] : []),
             {
-              ok: bank ? (bank.status === "OK" ? true : "warn") : c.bankAccounts.length ? "warn" : false,
-              label: bank ? `Banque connectée (${bank.label ?? bank.provider})${bank.status !== "OK" ? " — " + (bank.lastError ?? "en attente") : ""}` : c.bankAccounts.length ? "Compte saisi à la main (pas de synchro automatique)" : "Banque non connectée",
-              help: <Link href="/connexions" className="underline">Connexions → carte Banque</Link>,
+              ok: synced.length ? (failing && needsUserAction(failing.integration?.lastError) ? "warn" : true) : c.bankAccounts.length ? "warn" : false,
+              label: synced.length
+                ? `Banque connectée : ${synced.length} compte(s) ${banks}${lastSync ? `, dernière synchro ${lastSync.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : ""}${failing ? (needsUserAction(failing.integration?.lastError) ? ` — ${humanError(failing.integration?.lastError)}` : " (la banque limite les accès à 4 par jour : nouvel essai automatique, rien à faire)") : ""}`
+                : c.bankAccounts.length ? "Compte saisi à la main (pas de synchro automatique)" : "Banque non connectée",
+              help: <Link href="/connexions" className="underline">Connexions → « Tout connecter »</Link>,
             },
             {
-              ok: invoicing ? true : holding ? "warn" : false,
-              label: invoicing ? "Factures reliées (Shine Facture, Pennylane ou import)" : "Factures non reliées",
+              ok: invoicing ? true : "warn",
+              label: invoicing ? "Factures reliées (Shine Facture, Pennylane ou import)" : "Factures non reliées (facultatif : déposez un export dans Archives)",
               help: <Link href="/connexions" className="underline">Shine Facture via Connexions, ou export CSV dans Archives</Link>,
             },
             { ok: years.length >= 2 ? true : years.length === 1 ? "warn" : false, label: years.length ? `Bilans archivés : ${years.join(", ")}` : "Aucun bilan archivé", help: <Link href="/archives" className="underline">Déposer les bilans (3 dernières années idéalement)</Link> },
