@@ -26,11 +26,20 @@ export async function addIntegration(formData: FormData) {
     data: {
       companyId: (formData.get("companyId") ?? "").toString(),
       provider: provider.id,
-      label: (formData.get("label") ?? "").toString().trim() || null,
+      label: provider.id === "PORTAIL" ? creds.name?.slice(0, 80) ?? "Portail" : (formData.get("label") ?? "").toString().trim() || null,
       credentials: encryptJson(creds),
     },
   });
   await audit(me, "connexion_outil_ajoutee", `${provider.name} — société ${integ.companyId}`);
+  if (provider.id === "PORTAIL") {
+    if (!/^https:\/\//.test(creds.url ?? "")) redirect(`/connexions?msg=${encodeURIComponent("Adresse du portail invalide (https://...).")}`);
+    if (!creds.password) {
+      const sid = await startLive(integ.id, me.id, creds.url!);
+      redirect(`/connexions/direct?sid=${sid}&nom=${encodeURIComponent(creds.name ?? "le portail")}`);
+    }
+    revalidatePath("/connexions");
+    redirect(`/connexions?msg=${encodeURIComponent(`${creds.name} enregistré : les agents peuvent maintenant y chercher des informations.`)}`);
+  }
   const site = ROBOT_SITES[provider.id];
   if (site && !creds.password) {
     // Pas de mot de passe : le fondateur se connecte lui-même dans la fenêtre en direct.
@@ -94,7 +103,7 @@ const ROBOT_SITES: Record<string, { name: string; url: string }> = {
 export async function startDirect(integrationId: string) {
   const me = await requireAdmin();
   const integ = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
-  const site = ROBOT_SITES[integ.provider];
+  const site = ROBOT_SITES[integ.provider] ?? (integ.provider === "PORTAIL" ? { name: integ.label ?? "Portail", url: "" } : undefined);
   if (!site) throw new Error("Connexion en direct indisponible pour cet outil.");
   await audit(me, "connexion_directe_ouverte", `${site.name} — société ${integ.companyId}`);
   const sid = await startLive(integ.id, me.id, site.url);

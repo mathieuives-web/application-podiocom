@@ -8,7 +8,7 @@ import { askAtelier, refuseTask, validateTask } from "./actions";
 export const dynamic = "force-dynamic";
 
 const STATUS: Record<string, string> = { BROUILLON: "À valider", VALIDE: "Validé, en attente du robot", EN_COURS: "Saisie en cours…", FAIT: "Saisi dans GTA Pro", ERREUR: "Erreur", REFUSE: "Refusé" };
-type Line = { type: string; designation: string; reference?: string; quantite: number; prix_unitaire_ht: number };
+type Line = { type: string; designation: string; reference?: string; quantite: number; prix_unitaire_ht: number; source?: string };
 type Payload = { client?: { nom?: string; telephone?: string }; vehicule?: { immatriculation?: string; marque?: string; modele?: string; kilometrage?: number }; lignes?: Line[]; remarques?: string; total_ht?: number };
 
 export default async function AtelierPage({ searchParams }: { searchParams: Promise<{ msg?: string }> }) {
@@ -80,12 +80,12 @@ export default async function AtelierPage({ searchParams }: { searchParams: Prom
                 {p.vehicule?.kilometrage ? ` · ${p.vehicule.kilometrage.toLocaleString("fr-FR")} km` : ""}
               </p>
               <table className="table-base text-xs">
-                <thead><tr><th>Type</th><th>Désignation</th><th className="text-right">Qté</th><th className="text-right">PU HT</th><th className="text-right">Total HT</th></tr></thead>
+                <thead><tr><th>Type</th><th>Désignation</th><th className="text-right">Qté</th><th className="text-right">PU HT</th><th className="text-right">Total HT</th><th>Source</th></tr></thead>
                 <tbody>
                   {(p.lignes ?? []).map((l, i) => (
-                    <tr key={i}><td>{l.type === "MAIN_OEUVRE" ? "Main-d'œuvre" : l.type === "PIECE" ? "Pièce" : "Forfait"}</td><td>{l.designation}{l.reference ? ` (${l.reference})` : ""}</td><td className="text-right">{l.quantite}</td><td className="text-right">{eur(l.prix_unitaire_ht)}</td><td className="text-right">{eur(l.quantite * l.prix_unitaire_ht)}</td></tr>
+                    <tr key={i}><td>{l.type === "MAIN_OEUVRE" ? "Main-d'œuvre" : l.type === "PIECE" ? "Pièce" : "Forfait"}</td><td>{l.designation}{l.reference ? ` (${l.reference})` : ""}</td><td className="text-right">{l.quantite}</td><td className="text-right">{eur(l.prix_unitaire_ht)}</td><td className="text-right">{eur(l.quantite * l.prix_unitaire_ht)}</td><td className={!l.prix_unitaire_ht || /compl/i.test(l.source ?? "") ? "text-red-700 font-medium" : "text-slate-500"}>{l.source ?? "—"}</td></tr>
                   ))}
-                  <tr><td colSpan={4} className="text-right font-medium">Total HT</td><td className="text-right font-medium">{eur(p.total_ht ?? 0)}</td></tr>
+                  <tr><td colSpan={4} className="text-right font-medium">Total HT</td><td className="text-right font-medium">{eur(p.total_ht ?? 0)}</td><td /></tr>
                 </tbody>
               </table>
               {p.remarques && <p className="text-xs text-slate-600">Remarques : {p.remarques}</p>}

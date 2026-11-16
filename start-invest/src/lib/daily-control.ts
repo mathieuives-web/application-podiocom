@@ -79,8 +79,14 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
       log.push(`Rapports DAF : ${reports.length}`);
 
       // Secrétariat : tri des e-mails, du Drive et des messages WhatsApp, pour chaque société connectée.
-      const connected = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "WHATSAPP"] }, status: { not: "ERROR" } }, select: { companyId: true } });
+      const connected = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "OUTLOOK", "WHATSAPP"] }, status: { not: "ERROR" } }, select: { companyId: true } });
       for (const c of companies.filter((x) => connected.some((i) => i.companyId === x.id))) {
+        // Courrier atelier (Auto Rac'Ives) en plus du secrétariat quand la société en a un.
+        for (const courrier of agents.filter((a) => a.slug.startsWith("courrier-") && a.structure === c.name)) {
+          await executeAgent({ slug: courrier.slug, kind: "DAILY", companyId: c.id, task: `Courrier du ${date} pour ${c.name} : suis exactement ta procédure du matin, puis fais ton rapport.` })
+            .then((r) => reports.push(`### ${courrier.title} (${c.name})\n${r.output}`))
+            .catch((e) => log.push(`  ⚠ ${courrier.title} ${c.name} : ${(e as Error).message}`));
+        }
         const sec = agents.find((a) => a.slug.startsWith("secretariat-") && a.structure === c.name);
         if (!sec) continue;
         try {

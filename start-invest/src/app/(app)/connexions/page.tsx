@@ -4,6 +4,7 @@ import { PROVIDERS } from "@/lib/connectors";
 import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
 import { bankConfigured, bankRedirectUri, listBanks } from "@/lib/connectors/enablebanking";
 import { googleConfigured, googleRedirectUri } from "@/lib/connectors/google";
+import { microsoftConfigured, microsoftRedirectUri } from "@/lib/connectors/microsoft";
 import { whatsappVerifyToken } from "@/lib/connectors/whatsapp";
 import { ensureKnownPresence } from "@/lib/projects";
 import BankConnect from "./BankConnect";
@@ -66,7 +67,7 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                   <td className="text-xs text-slate-500">{i._count.bankAccounts} compte(s) · {i._count.invoices} facture(s)</td>
                   <td className="text-xs">{i.lastSyncAt ? fmt(i.lastSyncAt) : "—"}</td>
                   <td className="whitespace-nowrap space-x-3">
-                    {["AUTOCERFA", "GTAPRO"].includes(i.provider) && (
+                    {["AUTOCERFA", "GTAPRO", "PORTAIL"].includes(i.provider) && (
                       <form className="inline" action={async () => { "use server"; await startDirect(i.id); }}>
                         <button className="text-xs underline font-semibold text-emerald-700">se connecter moi-même</button>
                       </form>
@@ -162,6 +163,29 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                   </li>
                   <li>Cliquez <strong>Activate by linking accounts</strong> et connectez vos comptes (Shine...) : c&apos;est gratuit pour vos propres comptes.</li>
                   <li>Dans Railway, ajoutez <code>ENABLE_BANKING_APP_ID</code> (le nom du fichier sans .pem) et <code>ENABLE_BANKING_PRIVATE_KEY</code> (le contenu du fichier .pem), puis Deploy.</li>
+                </ol>
+              )
+            ) : p.id === "OUTLOOK" ? (
+              microsoftConfigured() ? (
+                <ul className="space-y-2">
+                  {companies.map((c) => {
+                    const connected = integrations.filter((i) => i.provider === "OUTLOOK" && i.companyId === c.id);
+                    return (
+                      <li key={c.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span>{c.name}{connected.length > 0 && <span className="block text-xs text-emerald-700">{connected.map((i) => i.label).join(", ")}</span>}</span>
+                        <a href={`/api/microsoft/connect?companyId=${c.id}`} className="btn-secondary text-xs">{connected.length ? "Ajouter une adresse" : "Se connecter avec Outlook"}</a>
+                      </li>
+                    );
+                  })}
+                  <li className="text-xs text-slate-500">Votre adresse personnelle qui sert à toutes les sociétés : connectez-la sur <strong>Start Invest</strong>.</li>
+                </ul>
+              ) : (
+                <ol className="text-xs text-slate-600 list-decimal pl-4 space-y-1">
+                  <li>Sur <a className="underline" href="https://entra.microsoft.com/" target="_blank" rel="noreferrer">entra.microsoft.com</a> (connectez-vous avec votre compte Outlook) → Applications → <strong>Inscriptions d&apos;applications</strong> → Nouvelle inscription « Start Invest ».</li>
+                  <li>Types de comptes : <strong>comptes dans un annuaire organisationnel et comptes Microsoft personnels</strong> (Outlook, Hotmail).</li>
+                  <li>URI de redirection (Web) : <code className="break-all">{microsoftRedirectUri()}</code></li>
+                  <li>Certificats et secrets → <strong>Nouveau secret client</strong> (24 mois) ; Autorisations d&apos;API → Microsoft Graph → délégué : <code>Mail.ReadWrite</code>, <code>offline_access</code>, <code>User.Read</code>.</li>
+                  <li>Dans Railway : <code>MICROSOFT_CLIENT_ID</code> (ID d&apos;application) et <code>MICROSOFT_CLIENT_SECRET</code> (la valeur du secret), puis Deploy.</li>
                 </ol>
               )
             ) : p.id === "GOOGLE" ? (

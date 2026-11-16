@@ -81,6 +81,17 @@ export const PROVIDERS: ProviderDef[] = [
     available: true,
   },
   {
+    id: "OUTLOOK",
+    name: "Outlook / Hotmail / Microsoft 365",
+    kind: "Gestion",
+    description:
+      "Boîte Outlook (par exemple votre adresse personnelle qui reçoit pour toutes les sociétés : connectez-la sur Start Invest). Chaque matin, le Secrétariat la trie par société et par type (dossiers), signale l'urgent et enregistre les factures reçues dans la bonne société. Il ne peut ni envoyer, ni supprimer.",
+    fields: [],
+    docs: "Bouton « Se connecter avec Outlook »",
+    available: true,
+    oauth: true,
+  },
+  {
     id: "GOOGLE",
     name: "Google : Gmail + Drive",
     kind: "Gestion",
@@ -129,6 +140,22 @@ export const PROVIDERS: ProviderDef[] = [
     docs: "À choisir pour Auto Rac Ives. Laissez identifiant et mot de passe vides pour vous connecter vous-même.",
     available: true,
   },
+  {
+    id: "PORTAIL",
+    name: "Portail pro : Autodata, fournisseurs de pièces, cotes...",
+    kind: "Gestion",
+    description:
+      "Tout site professionnel avec identifiant (Autodata pour les temps et valeurs constructeur, catalogues des fournisseurs de pièces et de pneus, cote des véhicules...). Ajoutez-en un par site et connectez-vous une fois dans la fenêtre en direct : les agents y CHERCHENT les informations (temps barème, préconisation d'huile, prix, disponibilité) au lieu de les deviner. Consultation seulement : jamais de panier ni de commande.",
+    fields: [
+      { name: "name", label: "Nom du portail", placeholder: "Autodata, Autodistribution, Oscaro Pro..." },
+      { name: "url", label: "Adresse de connexion", placeholder: "https://..." },
+      { name: "purpose", label: "À quoi il sert (pour les agents)", placeholder: "temps de main-d'œuvre et valeurs constructeur", optional: true },
+      { name: "login", label: "Identifiant (facultatif)", optional: true },
+      { name: "password", label: "Mot de passe (facultatif)", secret: true, optional: true },
+    ],
+    docs: "Laissez identifiant et mot de passe vides pour vous connecter vous-même. Un portail par site, pour la société qui l'utilise.",
+    available: true,
+  },
 
   {
     id: "AUTRES",
@@ -166,6 +193,13 @@ export async function syncIntegration(integrationId: string, opts: { force?: boo
       result = { accounts: 0, transactions: 0, invoices: 0 };
     } else if (integ.provider === "GOOGLE") {
       await googleClient(integ.id).then((g) => g.call("https://www.googleapis.com/oauth2/v3/userinfo"));
+      result = { accounts: 0, transactions: 0, invoices: 0 };
+    } else if (integ.provider === "PORTAIL") {
+      // Consulté à la demande par les agents (consulter_portail) : rien à synchroniser.
+      return { accounts: 0, transactions: 0, invoices: 0 };
+    } else if (integ.provider === "OUTLOOK") {
+      const { msClient } = await import("./microsoft");
+      await (await msClient(integ.id)).call("/me?$select=id");
       result = { accounts: 0, transactions: 0, invoices: 0 };
     } else if (integ.provider === "GTAPRO") {
       const r = await syncGtaPro(integ, creds as unknown as GtaProCreds, opts.force);

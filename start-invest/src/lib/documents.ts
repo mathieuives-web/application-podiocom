@@ -21,6 +21,7 @@ export const DOC_TYPES = {
   VEHICULES: "Export Auto Cerfa : stock / ventes de véhicules (Excel / CSV)",
   CONTRAT: "Contrat de travail d'un salarié (PDF)",
   TERRAIN: "Photo / pièce du terrain (frais, besoin, intervention)",
+  FACTURE_FOURNISSEUR: "Facture fournisseur (PDF ou photo)",
   AUTRE: "Autre document",
 } as const;
 export type DocType = keyof typeof DOC_TYPES;
@@ -133,7 +134,7 @@ const ReleveSchema = z.object({
   date_solde_final: z.string().nullable(),
 });
 
-async function extract<T>(pdf: Buffer, schema: z.ZodType<T>, instruction: string): Promise<T> {
+async function extract<T>(pdf: Buffer, schema: z.ZodType<T>, instruction: string, mime = "application/pdf"): Promise<T> {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
     throw new Error("Lecture des PDF par l'IA impossible : ANTHROPIC_API_KEY manquante.");
   }
@@ -148,7 +149,9 @@ async function extract<T>(pdf: Buffer, schema: z.ZodType<T>, instruction: string
       {
         role: "user",
         content: [
-          { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf.toString("base64") } },
+          /^image\/(jpeg|png|gif|webp)$/.test(mime)
+            ? { type: "image", source: { type: "base64", media_type: mime as "image/jpeg", data: pdf.toString("base64") } }
+            : { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf.toString("base64") } },
           { type: "text", text: instruction },
         ],
       },
@@ -163,6 +166,19 @@ async function extract<T>(pdf: Buffer, schema: z.ZodType<T>, instruction: string
     .join("");
   return schema.parse(JSON.parse(text));
 }
+
+const SupplierInvoiceSchema = z.object({
+  est_une_facture: z.boolean().describe("false si ce n'est pas une facture (devis, bon de livraison, publicité...)"),
+  fournisseur: z.string(),
+  numero: z.string().nullable(),
+  date: z.string().nullable().describe("AAAA-MM-JJ"),
+  echeance: z.string().nullable().describe("AAAA-MM-JJ"),
+  montant_ttc: z.number().nullable(),
+  montant_ht: z.number().nullable(),
+  deja_payee: z.boolean().describe("true si la facture indique « payée », « acquittée » ou un prélèvement / paiement CB déjà fait"),
+  objet: z.string().describe("Ce qui est facturé, en une phrase (ex. « plaquettes + disques AV, réf. ..., pour AB-123-CD »)"),
+  immatriculation: z.string().nullable(),
+});
 
 const lineId = (l: ParsedLine, n: number) =>
   "rel-" + createHash("sha1").update(`${l.date.toISOString().slice(0, 10)}|${l.label}|${l.amount.toFixed(2)}|${n}`).digest("hex").slice(0, 20);
@@ -320,6 +336,35 @@ export async function processDocument(id: string) {
       }
       const matched = await autoReconcile(doc.companyId);
       summary = `${n} facture(s) importée(s) ou mises à jour, ${matched} rapprochée(s) avec la banque.`;
+    } else if (doc.type === "FACTURE_FOURNISSEUR") {
+      const isImg = /\.(jpe?g|png|webp|gif)$/i.test(doc.fileName);
+      if (!isPdf && !isImg) throw new Error("Déposez la facture en PDF ou en photo.");
+      const mime = isImg ? (doc.mime.startsWith("image/") ? doc.mime : "image/jpeg") : "application/pdf";
+      const r = await extract(content, SupplierInvoiceSchema, "Ce document a été reçu par une entreprise (garage, restaurant, bar...). Si c'est une facture d'un fournisseur, extrais exactement ce qui est écrit. N'invente aucun chiffre : null si absent.", mime);
+      if (!r.est_une_facture || r.montant_ttc === null) {
+        summary = `Pas une facture exploitable (${r.objet}).`;
+      } else {
+        const externalId = "ff-" + createHash("sha1").update(`${doc.companyId}|${r.fournisseur}|${r.numero ?? ""}|${r.montant_ttc}|${r.date ?? ""}`).digest("hex").slice(0, 20);
+        await prisma.invoice.upsert({
+          where: { provider_externalId: { provider: "DOCUMENT", externalId } },
+          update: {},
+          create: {
+            companyId: doc.companyId,
+            kind: "SUPPLIER",
+            provider: "DOCUMENT",
+            externalId,
+            number: r.numero,
+            counterparty: r.fournisseur.slice(0, 200),
+            label: `${r.objet}${r.immatriculation ? ` — ${r.immatriculation}` : ""}`.slice(0, 300),
+            issueDate: (r.date && parseDate(r.date)) || new Date(),
+            dueDate: r.echeance ? parseDate(r.echeance) : null,
+            amount: r.montant_ttc,
+            paidAmount: r.deja_payee ? r.montant_ttc : 0,
+          },
+        });
+        const matched = await autoReconcile(doc.companyId);
+        summary = `Facture ${r.fournisseur}${r.numero ? ` n° ${r.numero}` : ""} : ${r.montant_ttc} € TTC${r.echeance ? `, échéance ${r.echeance}` : ""}${r.deja_payee ? " (déjà payée)" : ""}. ${r.objet}.${matched ? ` ${matched} rapprochement(s) bancaire(s).` : ""}`;
+      }
     } else if (doc.type === "VEHICULES") {
       if (isPdf) throw new Error("Déposez l'export Auto Cerfa en Excel ou CSV (menu Stock → Export Excel, ou export des ventes / export comptable).");
       const r = await importVehicleSheet(doc.companyId, readSheet(content, doc.fileName, doc.mime), doc.fileName);

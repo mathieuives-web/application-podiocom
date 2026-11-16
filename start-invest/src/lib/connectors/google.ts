@@ -177,3 +177,22 @@ export async function driveMove(integrationId: string, fileId: string, opts: { v
   }
   return g.call(`${API}/drive/v3/files/${encodeURIComponent(fileId)}?${q}`, { method: "PATCH", body: opts.nouveauNom ? { name: opts.nouveauNom.slice(0, 200) } : {} });
 }
+
+/** Pièces jointes d'un e-mail Gmail (PDF, images...). */
+export async function gmailAttachments(integrationId: string, id: string) {
+  const g = await googleClient(integrationId);
+  const m = await g.call<GmailMsg>(`${GMAIL}/gmail/v1/users/me/messages/${encodeURIComponent(id)}?format=full`);
+  const parts: GmailPart[] = [];
+  const walk = (p?: GmailPart) => {
+    if (!p) return;
+    if (p.filename && p.body?.attachmentId) parts.push(p);
+    (p.parts ?? []).forEach(walk);
+  };
+  walk(m.payload);
+  const out: { name: string; mime: string; content: Buffer }[] = [];
+  for (const p of parts.slice(0, 10)) {
+    const a = await g.call<{ data: string }>(`${GMAIL}/gmail/v1/users/me/messages/${encodeURIComponent(id)}/attachments/${encodeURIComponent(p.body!.attachmentId!)}`);
+    out.push({ name: p.filename!, mime: p.mimeType ?? "application/octet-stream", content: Buffer.from(a.data.replace(/-/g, "+").replace(/_/g, "/"), "base64") });
+  }
+  return out;
+}

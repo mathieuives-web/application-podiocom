@@ -4,6 +4,8 @@ import net from "net";
 import { prisma } from "@/lib/prisma";
 import type { AgentDef } from "@/lib/agents";
 import { repoFile, repoStatus } from "@/lib/connectors/github";
+import { outlookAttachments, outlookOrganize, outlookRead, outlookSearch } from "@/lib/connectors/microsoft";
+import { gmailAttachments } from "@/lib/connectors/google";
 import { driveCreateFolder, driveList, driveMove, gmailOrganize, gmailRead, gmailSearch } from "@/lib/connectors/google";
 
 // Outils supplémentaires du board : présence en ligne (sites, réseaux sociaux, référencement),
@@ -12,12 +14,14 @@ import { driveCreateFolder, driveList, driveMove, gmailOrganize, gmailRead, gmai
 // « Secrétariat » peuvent ranger (libellés, archivage, dossiers) ; personne ne peut envoyer ni supprimer.
 
 const GROUP = ["ceo", "cfo", "cmo", "seo-geo", "contenu-reseaux", "publicite"];
-const isSecretariat = (a: AgentDef) => a.slug.startsWith("secretariat-");
-const ATELIER_WRITERS = ["clients-devis-auto-rac-ives", "dg-auto-rac-ives", "planning-atelier-auto-rac-ives", "pieces-auto-rac-ives", "secretariat-auto-rac-ives"];
+// Secrétariats et agents « Courrier » : seuls à pouvoir ranger les e-mails et le Drive.
+const isSecretariat = (a: AgentDef) => a.slug.startsWith("secretariat-") || a.slug.startsWith("courrier-");
+const ATELIER_WRITERS = ["courrier-auto-rac-ives", "clients-devis-auto-rac-ives", "dg-auto-rac-ives", "planning-atelier-auto-rac-ives", "pieces-auto-rac-ives", "secretariat-auto-rac-ives"];
 const canSeeAtelier = (a: AgentDef) => a.structure === "Auto Rac Ives" || ["ceo", "cfo", "avocat-du-diable"].includes(a.slug);
 const canSeeProjects = (a: AgentDef) => a.slug === "directeur-projets" || a.slug.startsWith("projet-") || ["ceo", "cto", "cmo", "avocat-du-diable", "moneymaker"].includes(a.slug);
-const canReadMail = (a: AgentDef) => isSecretariat(a) || a.slug.startsWith("dg-") || a.slug.startsWith("daf-") || a.slug === "ceo";
+const canReadMail = (a: AgentDef) => isSecretariat(a) || ATELIER_WRITERS.includes(a.slug) || a.slug.startsWith("dg-") || a.slug.startsWith("daf-") || a.slug === "ceo";
 
+const portalBusy = new Set<string>();
 const societe = { type: "string", description: "Nom de la société (par défaut : la tienne)." } as const;
 
 export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
@@ -46,8 +50,13 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   if (canReadMail(agent)) {
     tools.push(
       {
+        name: "boites_mail",
+        description: "Liste les boîtes mail connectées de la société (Gmail et Outlook), avec leur adresse. Quand il y en a plusieurs, traite-les une par une avec le paramètre « boite ».",
+        input_schema: { type: "object", properties: { societe }, additionalProperties: false },
+      },
+      {
         name: "mails_rechercher",
-        description: "Cherche des e-mails dans la boîte Gmail de la société (syntaxe de recherche Gmail : is:unread, in:inbox, from:, subject:, has:attachment, newer_than:2d, label:...). Renvoie expéditeur, objet, date, extrait, libellés.",
+        description: "Cherche des e-mails dans une boîte de la société. Gmail : syntaxe Gmail (is:unread, in:inbox, from:, subject:, has:attachment, newer_than:2d). Outlook : syntaxe Outlook (from:, subject:, received>=2026-11-14, hasattachments:true) ; vide = boîte de réception récente. Renvoie expéditeur, objet, date, extrait.",
         input_schema: { type: "object", properties: { societe, recherche: { type: "string", description: "Défaut : in:inbox newer_than:3d" }, max: { type: "integer", description: "Défaut 30, max 100." }, boite: { type: "string", description: "Adresse e-mail si la société en a plusieurs." } }, additionalProperties: false },
       },
       {
@@ -62,6 +71,19 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
       }
     );
   }
+  tools.push(
+    {
+      name: "lister_portails",
+      description: "Portails pros connectés pour ta société (Autodata, fournisseurs de pièces, cote...) et à quoi ils servent.",
+      input_schema: { type: "object", properties: { societe }, additionalProperties: false },
+    },
+    {
+      name: "consulter_portail",
+      description:
+        "Cherche une information RÉELLE dans un portail pro connecté (ex. Autodata : temps barème d'une opération, préconisation d'huile et capacité, couple de serrage, périodicité d'entretien ; fournisseur : prix et disponibilité d'une référence pour un véhicule). Donne une question précise avec le véhicule (immatriculation ou marque / modèle / motorisation / année). Prend 1 à 3 minutes. Consultation seulement : jamais de commande.",
+      input_schema: { type: "object", properties: { portail: { type: "string", description: "Nom du portail (voir lister_portails)" }, question: { type: "string" }, societe }, required: ["portail", "question"], additionalProperties: false },
+    }
+  );
   if (canSeeAtelier(agent)) {
     tools.push({
       name: "lister_atelier",
@@ -73,7 +95,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
     tools.push({
       name: "preparer_document_atelier",
       description:
-        "Prépare un DEVIS ou un ORDRE DE RÉPARATION (OR) à saisir dans GTA Pro. Il part en BROUILLON : le fondateur le vérifie et le valide dans la page Atelier, puis le robot le saisit. Donne des prix HT réalistes (barème main-d'œuvre de l'atelier, prix des pièces) et toutes les infos du client et du véhicule.",
+        "Prépare un DEVIS ou un ORDRE DE RÉPARATION (OR) à saisir dans GTA Pro. Il part en BROUILLON : le fondateur le vérifie et le valide dans la page Atelier, puis le robot le saisit. AUCUNE valeur inventée : temps de main-d'œuvre lus dans Autodata (consulter_portail), prix des pièces lus chez le fournisseur ou dans GTA Pro, taux horaire de l'atelier tel qu'il est dans GTA Pro ; chaque ligne a sa source, sinon « à compléter » avec prix 0.",
       input_schema: {
         type: "object",
         properties: {
@@ -89,9 +111,10 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
                 designation: { type: "string" },
                 reference: { type: "string" },
                 quantite: { type: "number", description: "Heures pour la main-d'œuvre" },
-                prix_unitaire_ht: { type: "number" },
+                prix_unitaire_ht: { type: "number", description: "0 si la valeur n'a pas pu être obtenue (source « à compléter »)" },
+                source: { type: "string", description: "D'où vient la valeur : « Autodata », le nom du portail fournisseur, « tarif GTA Pro », « facture fournisseur du ... », ou « à compléter » si introuvable. JAMAIS une estimation." },
               },
-              required: ["type", "designation", "quantite", "prix_unitaire_ht"],
+              required: ["type", "designation", "quantite", "prix_unitaire_ht", "source"],
               additionalProperties: false,
             },
           },
@@ -126,8 +149,13 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   if (isSecretariat(agent)) {
     tools.push(
       {
+        name: "mail_enregistrer_facture",
+        description: "Enregistre la ou les factures en pièce jointe d'un e-mail (PDF ou photo) : archivées chiffrées, lues par l'IA (fournisseur, numéro, montant, échéance) et ajoutées aux factures fournisseurs à payer de la société, puis rapprochées de la banque. « pour_societe » : la société concernée si la boîte sert à plusieurs sociétés (boîte du fondateur).",
+        input_schema: { type: "object", properties: { societe, id: { type: "string" }, boite: { type: "string" }, pour_societe: { type: "string" } }, required: ["id"], additionalProperties: false },
+      },
+      {
         name: "mail_ranger",
-        description: "Range un e-mail : ajoute un libellé (créé s'il n'existe pas, ex. « Factures fournisseurs », « Clients », « Banque », « Administration »), l'archive (le sort de la boîte de réception), le marque lu, ou le marque important. Impossible d'envoyer ou de supprimer.",
+        description: "Range un e-mail : Gmail = ajoute un libellé (créé s'il n'existe pas) et/ou l'archive ; Outlook = le déplace dans un dossier (créé s'il n'existe pas, ex. « La Fabrique Automobile/Factures »). Peut aussi le marquer lu ou important. Impossible d'envoyer ou de supprimer.",
         input_schema: {
           type: "object",
           properties: { societe, id: { type: "string" }, libelle: { type: "string" }, archiver: { type: "boolean" }, marquer_lu: { type: "boolean" }, important: { type: "boolean" }, boite: { type: "string" } },
@@ -150,7 +178,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   return tools;
 }
 
-export const EXTRA_TOOL_NAMES = new Set(["lister_atelier", "preparer_document_atelier", "lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
+export const EXTRA_TOOL_NAMES = new Set(["lister_portails", "consulter_portail", "boites_mail", "mail_enregistrer_facture", "lister_atelier", "preparer_document_atelier", "lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
 
 async function scopeCompany(agent: AgentDef, name?: string) {
   const all = await prisma.company.findMany({ where: { active: true } });
@@ -166,6 +194,17 @@ async function scopeCompany(agent: AgentDef, name?: string) {
   if (!c) throw new Error(`Société « ${name} » introuvable.`);
   if (!group && c.id !== own!.id) throw new Error(`Tu ne travailles que pour ${own!.name}.`);
   return c;
+}
+
+/** Boîte mail (Gmail ou Outlook) de la société de l'agent. S'il y en a plusieurs, « boite » est obligatoire. */
+async function mailFor(agent: AgentDef, name?: string, boite?: string) {
+  const c = await scopeCompany(agent, name);
+  if (!c) throw new Error("Précise la société.");
+  const list = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "OUTLOOK"] }, companyId: c.id } });
+  if (!list.length) throw new Error(`Aucune boîte mail connectée pour ${c.name} : à faire dans Connexions (Google ou Outlook).`);
+  const i = boite ? list.find((x) => x.label?.toLowerCase() === boite.toLowerCase()) : list.length === 1 ? list[0] : null;
+  if (!i) throw new Error(`Précise la boîte (paramètre « boite ») parmi : ${list.map((x) => x.label).join(", ")}`);
+  return { id: i.id, provider: i.provider as "GOOGLE" | "OUTLOOK", label: i.label, company: c };
 }
 
 async function googleFor(agent: AgentDef, name?: string, boite?: string) {
@@ -357,15 +396,90 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
       });
       return rows.map((r) => ({ id: r.id, date: r.createdAt.toISOString().slice(0, 16), societe: r.company.name, de: r.fromName ?? r.fromPhone, type: r.kind, resume: r.summary, texte: r.text, montant: r.amount, fournisseur: r.merchant, dateDepense: r.spentAt?.toISOString().slice(0, 10) ?? null, vehiculeOuClient: r.vehicle, urgent: r.urgent, photo: Boolean(r.documentId), statut: r.status }));
     }
-    case "mails_rechercher":
-      return gmailSearch(await googleFor(agent, soc, boite), String(input.recherche || "in:inbox newer_than:3d"), Number(input.max) || 30);
-    case "mail_lire":
-      return gmailRead(await googleFor(agent, soc, boite), String(input.id));
+    case "lister_portails": {
+      const c = await scopeCompany(agent, soc);
+      const list = await prisma.integration.findMany({ where: { provider: "PORTAIL", ...(c ? { companyId: c.id } : {}) }, include: { company: { select: { name: true } } } });
+      const { decryptJson } = await import("@/lib/crypto");
+      return list.map((x) => {
+        const cr = decryptJson<{ url?: string; purpose?: string }>(x.credentials);
+        return { portail: x.label, societe: x.company.name, sert_a: cr.purpose ?? null, connecte: Boolean((cr as { storageState?: string; password?: string }).storageState || (cr as { password?: string }).password), etat: x.status, erreur: x.lastError };
+      });
+    }
+    case "consulter_portail": {
+      const c = await scopeCompany(agent, soc);
+      const q = String(input.portail ?? "").toLowerCase();
+      const list = await prisma.integration.findMany({ where: { provider: "PORTAIL", ...(c ? { companyId: c.id } : {}) } });
+      const integ = list.find((x) => x.label?.toLowerCase() === q) ?? (list.filter((x) => x.label?.toLowerCase().includes(q)).length === 1 ? list.find((x) => x.label?.toLowerCase().includes(q)) : undefined);
+      if (!integ) throw new Error(`Portail « ${input.portail} » non connecté${c ? ` pour ${c.name}` : ""}. Portails : ${list.map((x) => x.label).join(", ") || "aucun (à ajouter dans Connexions → Portail pro)"}`);
+      if (portalBusy.has(integ.id)) throw new Error("Ce portail est déjà en cours de consultation : réessaie dans une minute.");
+      const { decryptJson, encryptJson } = await import("@/lib/crypto");
+      const cr = decryptJson<{ url?: string; login?: string; password?: string; storageState?: string }>(integ.credentials);
+      if (!cr.url || (!cr.storageState && !cr.password)) throw new Error(`${integ.label} : pas encore connecté (Connexions → « se connecter moi-même »).`);
+      const { withSite, consultSite } = await import("@/lib/connectors/web-operator");
+      const acc = { site: `portail-${integ.id}`, startUrl: cr.url, username: cr.login ?? "", password: cr.password ?? "", storageState: cr.storageState };
+      portalBusy.add(integ.id);
+      try {
+        const { value, storageState } = await withSite(acc, (page) => consultSite(page, acc, String(input.question).slice(0, 1500)));
+        if (storageState) await prisma.integration.update({ where: { id: integ.id }, data: { credentials: encryptJson({ ...cr, storageState }), status: "OK", lastError: null, lastSyncAt: new Date() } });
+        return { portail: integ.label, ...value };
+      } catch (e) {
+        await prisma.integration.update({ where: { id: integ.id }, data: { status: "ERROR", lastError: (e as Error).message.slice(0, 400) } });
+        throw e;
+      } finally {
+        portalBusy.delete(integ.id);
+      }
+    }
+    case "boites_mail": {
+      const c = await scopeCompany(agent, soc);
+      const list = await prisma.integration.findMany({ where: { provider: { in: ["GOOGLE", "OUTLOOK"] }, ...(c ? { companyId: c.id } : {}) }, include: { company: { select: { name: true } } } });
+      return list.map((x) => ({ boite: x.label, type: x.provider === "GOOGLE" ? "Gmail" : "Outlook", societe: x.company.name, etat: x.status }));
+    }
+    case "mails_rechercher": {
+      const m = await mailFor(agent, soc, boite);
+      return m.provider === "OUTLOOK" ? outlookSearch(m.id, String(input.recherche ?? ""), Number(input.max) || 30) : gmailSearch(m.id, String(input.recherche || "in:inbox newer_than:3d"), Number(input.max) || 30);
+    }
+    case "mail_lire": {
+      const m = await mailFor(agent, soc, boite);
+      return m.provider === "OUTLOOK" ? outlookRead(m.id, String(input.id)) : gmailRead(m.id, String(input.id));
+    }
+    case "mail_enregistrer_facture": {
+      if (!isSecretariat(agent) && !ATELIER_WRITERS.includes(agent.slug)) throw new Error("Réservé aux secrétariats et au courrier.");
+      const m = await mailFor(agent, soc, boite);
+      // Boîte du fondateur (Start Invest) : la facture peut être pour une autre société du groupe.
+      let target = m.company;
+      if (input.pour_societe) {
+        const all = await prisma.company.findMany({ where: { active: true } });
+        const q = String(input.pour_societe).toLowerCase();
+        const found = all.find((x) => x.name.toLowerCase() === q) ?? (all.filter((x) => x.name.toLowerCase().includes(q)).length === 1 ? all.find((x) => x.name.toLowerCase().includes(q)) : undefined);
+        if (!found) throw new Error(`Société « ${input.pour_societe} » introuvable ou ambiguë.`);
+        if (found.id !== m.company.id && m.company.name !== "Start Invest") throw new Error(`Cette boîte appartient à ${m.company.name} : pas de facture pour une autre société.`);
+        target = found;
+      }
+      const files = (m.provider === "OUTLOOK" ? await outlookAttachments(m.id, String(input.id)) : await gmailAttachments(m.id, String(input.id))).filter((f) => /pdf|image\/(jpe?g|png|webp)/i.test(f.mime) || /\.(pdf|jpe?g|png|webp)$/i.test(f.name));
+      if (!files.length) throw new Error("Aucune pièce jointe PDF ou photo dans cet e-mail.");
+      const { saveDocument, processDocument } = await import("@/lib/documents");
+      const out = [];
+      for (const f of files.slice(0, 5)) {
+        const name = /\.(pdf|jpe?g|png|webp)$/i.test(f.name) ? f.name : `${f.name}.pdf`;
+        const { doc, duplicate } = await saveDocument(new File([new Uint8Array(f.content)], name.slice(0, 150), { type: f.mime }), { companyId: target.id, type: "FACTURE_FOURNISSEUR", uploadedBy: `${agent.slug} (${m.label})` });
+        if (duplicate) {
+          out.push({ fichier: f.name, resultat: "déjà enregistrée" });
+          continue;
+        }
+        await processDocument(doc.id);
+        const d = await prisma.document.findUnique({ where: { id: doc.id } });
+        out.push({ fichier: f.name, resultat: d?.status === "ERROR" ? `erreur : ${d.error}` : d?.summary });
+      }
+      return { societe: target.name, factures: out };
+    }
     case "drive_lister":
       return driveList(await googleFor(agent, soc, boite), { dossier: input.dossier as string | undefined, recherche: input.recherche as string | undefined });
-    case "mail_ranger":
+    case "mail_ranger": {
       if (!isSecretariat(agent)) throw new Error("Réservé aux agents Secrétariat.");
-      return gmailOrganize(await googleFor(agent, soc, boite), String(input.id), { libelle: input.libelle as string | undefined, archiver: Boolean(input.archiver), marquerLu: Boolean(input.marquer_lu), important: Boolean(input.important) });
+      const m = await mailFor(agent, soc, boite);
+      if (m.provider === "OUTLOOK") return outlookOrganize(m.id, String(input.id), { dossier: (input.libelle as string | undefined) ?? (input.archiver ? "Traité" : undefined), marquerLu: Boolean(input.marquer_lu), important: Boolean(input.important) });
+      return gmailOrganize(m.id, String(input.id), { libelle: input.libelle as string | undefined, archiver: Boolean(input.archiver), marquerLu: Boolean(input.marquer_lu), important: Boolean(input.important) });
+    }
     case "drive_creer_dossier":
       if (!isSecretariat(agent)) throw new Error("Réservé aux agents Secrétariat.");
       return driveCreateFolder(await googleFor(agent, soc, boite), String(input.nom), input.parent as string | undefined);

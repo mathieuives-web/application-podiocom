@@ -77,11 +77,16 @@ const Action = z.object({
   raison: z.string().describe("Pour « termine » : le compte rendu (numéro du document créé, ou ce qui a été lu)"),
 });
 
-async function decide(mode: "lecture" | "saisie", goal: string, page: Page, history: string[], extra = "") {
-  const [btns, flds] = await Promise.all([clickables(page), mode === "saisie" ? fields(page) : Promise.resolve([])]);
+/** Achats interdits en consultation (on cherche une info, on ne commande jamais). */
+const COMMERCE = /panier|commander|commande\b|acheter|achat|valider|confirmer|enregistr|r[ée]server|devis en ligne|payer/i;
+
+async function decide(mode: "lecture" | "saisie" | "consultation", goal: string, page: Page, history: string[], extra = "") {
+  const [btns, flds] = await Promise.all([clickables(page), mode !== "lecture" ? fields(page) : Promise.resolve([])]);
   const text = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").slice(0, 4000);
   const rules =
-    mode === "lecture"
+    mode === "consultation"
+      ? `MODE CONSULTATION : tu cherches une INFORMATION dans ce portail (base technique constructeur, catalogue fournisseur...). Tu peux taper dans les champs de recherche (immatriculation, VIN, référence, modèle) et cliquer sur rechercher / les résultats / les onglets. Quand l'information est à l'écran, « lire » (le texte est enregistré), puis « termine » avec la réponse exacte trouvée (valeurs, unités, références, prix, disponibilité) et où tu l'as lue. INTERDIT : ajouter au panier, commander, acheter, valider, réserver, payer. Si l'info n'existe pas dans le portail, « impossible » : n'invente jamais une valeur.`
+      : mode === "lecture"
       ? `MODE LECTURE SEULE : tu navigues pour AFFICHER l'information, tu ne modifies rien. Quand la liste voulue est à l'écran, réponds « lire » (le texte de la page est enregistré), puis va à la page suivante de la liste s'il y en a une et « lire » encore. Quand tout est lu, « termine ».`
       : `MODE SAISIE : tu saisis UN document dans le logiciel, exactement avec les données fournies, ni plus ni moins. Remplis les champs (« remplir » / « choisir »), ajoute les lignes, puis enregistre le document comme DEVIS ou ORDRE DE RÉPARATION. INTERDIT : facturer, transformer en facture, encaisser, saisir un règlement, supprimer, annuler, envoyer par e-mail, signer, clôturer. Si une donnée obligatoire manque ou si l'écran est ambigu, réponds « impossible » avec la raison. À la fin, « termine » avec le numéro du document créé.`;
   const stream = anthropic().beta.messages.stream({
@@ -247,4 +252,56 @@ export async function fillDocument(page: Page, acc: SiteAccess, goal: string, da
     history.push(`cliquer « ${el.text} »`);
   }
   throw new Error(`Saisie non terminée après ${MAX_STEPS} étapes (${history.slice(-5).join(" → ")})`);
+}
+
+/** Cherche une information dans un portail (Autodata, catalogue fournisseur...) et renvoie la réponse + le texte lu. */
+export async function consultSite(page: Page, acc: SiteAccess, question: string) {
+  const history: string[] = [];
+  const captures: string[] = [];
+  for (let n = 0; n < 30; n++) {
+    await loginIfNeeded(page, acc.username, acc.password);
+    const { a, btns } = await decide("consultation", question, page, history);
+    if (a.action === "termine") return { reponse: a.raison, texteLu: captures.join("\n\n---\n\n").slice(0, 40000), page: page.url() };
+    if (a.action === "impossible") return { reponse: `Introuvable dans ce portail : ${a.raison}`, texteLu: captures.join("\n\n---\n\n").slice(0, 20000), page: page.url() };
+    if (a.action === "lire") {
+      captures.push((await page.locator("body").innerText().catch(() => "")).slice(0, 30000));
+      history.push("lire");
+      continue;
+    }
+    if (a.action === "aller" && a.url) {
+      if (!sameSite(acc.startUrl, a.url) || NEVER.test(a.url) || COMMERCE.test(a.url)) {
+        history.push(`refusé ${a.url}`);
+        continue;
+      }
+      await page.goto(new URL(a.url, page.url()).toString(), { waitUntil: "networkidle", timeout: 30000 }).catch(() => undefined);
+      history.push(`ouvrir ${new URL(page.url()).pathname}`);
+      continue;
+    }
+    if (a.action === "remplir" || a.action === "choisir") {
+      const loc = page.locator(`[data-champ="${a.index}"]`);
+      const v = String(a.valeur ?? "").slice(0, 200);
+      if (a.action === "choisir") await loc.selectOption({ label: v }).catch(() => loc.selectOption(v)).catch(() => undefined);
+      else {
+        await loc.fill(v).catch(() => undefined);
+        await loc.press("Enter").catch(() => undefined);
+      }
+      await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => undefined);
+      history.push(`${a.action} ${a.index} = « ${v.slice(0, 40)} »`);
+      continue;
+    }
+    const el = btns.find((b) => b.i === a.index);
+    if (!el) {
+      history.push("(numéro invalide)");
+      continue;
+    }
+    if (NEVER.test(`${el.text} ${el.href ?? ""}`) || COMMERCE.test(`${el.text} ${el.href ?? ""}`)) {
+      history.push(`REFUSÉ « ${el.text} » (consultation seulement : ni panier, ni commande)`);
+      continue;
+    }
+    page.once("dialog", (d) => void d.dismiss().catch(() => undefined));
+    await page.locator(`[data-robot="${el.i}"]`).click({ timeout: 10000 }).catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
+    history.push(`cliquer « ${el.text} »`);
+  }
+  return { reponse: "Recherche non aboutie après 30 étapes.", texteLu: captures.join("\n\n---\n\n").slice(0, 20000), page: page.url() };
 }

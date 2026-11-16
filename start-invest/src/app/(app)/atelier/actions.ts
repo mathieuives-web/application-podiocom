@@ -11,6 +11,11 @@ import { agentsConfigured, executeAgent } from "@/lib/agent-runtime";
 /** Le fondateur valide : le robot saisit le document dans GTA Pro (en arrière-plan). */
 export async function validateTask(id: string) {
   const me = await requireAdmin();
+  const draft = await prisma.robotTask.findUniqueOrThrow({ where: { id } });
+  const lines = (JSON.parse(draft.payload).lignes ?? []) as { prix_unitaire_ht: number; source?: string }[];
+  if (lines.some((l) => !l.prix_unitaire_ht || /compl[ée]ter/i.test(l.source ?? ""))) {
+    redirect("/atelier?msg=" + encodeURIComponent("Ce document a des lignes « à compléter » : complétez la demande (ou les accès Autodata / fournisseur) et faites-le préparer à nouveau."));
+  }
   const t = await prisma.robotTask.update({ where: { id }, data: { status: "VALIDE", validatedBy: me.email ?? me.id, validatedAt: new Date(), error: null } });
   await audit(me, "atelier_document_valide", t.title);
   after(() => import("@/lib/connectors/gtapro").then((m) => m.runPendingTasks(t.companyId)).catch(() => undefined));
@@ -36,7 +41,12 @@ export async function askAtelier(formData: FormData) {
     executeAgent({
       slug: "clients-devis-auto-rac-ives",
       userId: me.id,
-      task: `Le fondateur demande ${type} : « ${demande} ». Prépare-le avec preparer_document_atelier (prix HT réalistes de l'atelier : main-d'œuvre au barème, pièces au prix de vente ; si une info indispensable manque, mets une hypothèse claire dans « remarques »). Puis résume en 3 lignes ce que tu as préparé.`,
+      task: `Le fondateur demande ${type} : « ${demande} ». Tu n'inventes RIEN :
+1. Temps de main-d'œuvre et valeurs constructeur (huile, capacité, pièces de l'entretien) : consulter_portail sur Autodata pour CE véhicule.
+2. Prix des pièces : consulter_portail sur le(s) portail(s) fournisseur(s) (lister_portails), ou le tarif de GTA Pro.
+3. Taux horaire : celui de l'atelier dans GTA Pro (lister_atelier / devis existants) ; s'il est inconnu, « à compléter ».
+Puis preparer_document_atelier avec la source de chaque ligne ; une valeur introuvable = prix 0 et source « à compléter ».
+Résume en 3 lignes ce que tu as préparé et ce qui reste à compléter.`,
     }).then(() => undefined).catch(() => undefined)
   );
   redirect("/atelier?msg=" + encodeURIComponent("Demande transmise à l'agent Clients & devis : le brouillon apparaît ici dans une minute (rechargez la page)."));

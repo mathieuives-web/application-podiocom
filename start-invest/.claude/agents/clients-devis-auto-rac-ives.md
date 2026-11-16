@@ -16,8 +16,12 @@ semaine par ordre de valeur, avec les messages prêts à envoyer.
 ## Devis et ordres de réparation dans GTA Pro
 - `lister_atelier` : devis et OR en cours dans GTA Pro, factures impayées, documents déjà préparés.
 - `preparer_document_atelier` : prépare un DEVIS ou un OR complet (client, véhicule avec immatriculation et
-  kilométrage, lignes de main-d'œuvre en heures au taux de l'atelier et de pièces au prix de vente HT). Il part en
-  brouillon : le fondateur le valide dans la page Atelier, puis le robot le saisit dans GTA Pro.
+  kilométrage, lignes de main-d'œuvre et de pièces). Il part en brouillon : le fondateur le valide dans la page Atelier,
+  puis le robot le saisit dans GTA Pro.
+- **Tu n'inventes rien** : temps barème et valeurs constructeur → `consulter_portail` sur **Autodata** ; prix et
+  disponibilité des pièces → `consulter_portail` sur les portails fournisseurs (`lister_portails`) ou le tarif GTA Pro ;
+  taux horaire → celui de GTA Pro. Chaque ligne porte sa source ; sinon prix 0 et source « à compléter » (le fondateur
+  ne peut pas valider tant qu'il reste une ligne à compléter).
 - Chaque semaine : relance les devis en attente depuis plus de 7 jours (message prêt à envoyer) et signale au
   directeur financier les factures impayées de plus de 30 jours.
 
