@@ -5,6 +5,7 @@ import { shineMcpAvailable } from "@/lib/connectors/shine-mcp";
 import { bankConfigured, bankRedirectUri, listBanks } from "@/lib/connectors/enablebanking";
 import { googleConfigured, googleRedirectUri } from "@/lib/connectors/google";
 import { whatsappVerifyToken } from "@/lib/connectors/whatsapp";
+import { ensureKnownPresence } from "@/lib/projects";
 import BankConnect from "./BankConnect";
 import { addIntegration, syncNow, removeIntegration, startDirect, setPresence } from "./actions";
 
@@ -14,6 +15,7 @@ const fmt = (d: Date) => d.toLocaleString("fr-FR", { dateStyle: "short", timeSty
 
 export default async function ConnexionsPage({ searchParams }: { searchParams: Promise<{ msg?: string }> }) {
   await requireAdmin();
+  await ensureKnownPresence().catch(() => undefined);
   const { msg } = await searchParams;
   let banks: { name: string }[] = [];
   let banksError: string | null = null;

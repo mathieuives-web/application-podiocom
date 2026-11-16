@@ -23,6 +23,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
 
   const log: string[] = [];
   try {
+    await import("@/lib/projects").then((m) => m.ensureDefaultProjects()).catch(() => undefined);
     const sync = await syncAll();
     log.push(`Synchro : ${sync.filter((s) => s.ok).length}/${sync.length} connexion(s) OK`);
     for (const s of sync.filter((x) => !x.ok)) log.push(`  ⚠ ${s.error}`);
