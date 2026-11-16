@@ -82,3 +82,12 @@ export async function resetUserTotp(userId: string) {
   await audit(me, "double_authentification_reinitialisee", u.email);
   revalidatePath("/acces");
 }
+
+export async function removePasskey(id: string) {
+  const me = await requireUser();
+  const pk = await prisma.passkey.findFirst({ where: { id, userId: me.id } });
+  if (!pk) return;
+  await prisma.passkey.delete({ where: { id: pk.id } });
+  await audit(me, "cle_acces_supprimee", pk.name);
+  revalidatePath("/acces");
+}

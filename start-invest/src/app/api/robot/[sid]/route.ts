@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { strongAuth } from "@/lib/session";
 import { liveAction, liveScreenshot, type LiveAction } from "@/lib/connectors/live-browser";
 
 // Fenêtre de connexion en direct : écran (GET) et actions du fondateur (POST). Fondateur avec 2FA uniquement.
@@ -8,7 +9,7 @@ async function admin() {
   const session = await auth();
   const uid = (session?.user as { id?: string } | undefined)?.id;
   const me = uid ? await prisma.user.findUnique({ where: { id: uid } }) : null;
-  if (!me || !me.active || me.role !== "ADMIN" || (!me.totpEnabled && process.env.REQUIRE_2FA !== "off")) return null;
+  if (!me || !me.active || me.role !== "ADMIN" || !(await strongAuth(me))) return null;
   return me;
 }
 

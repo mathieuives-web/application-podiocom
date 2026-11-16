@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { isAdmin } from "@/lib/session";
 import { LINKS } from "./nav";
 
@@ -54,12 +54,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="px-4 py-2 md:py-4 border-t border-stone-800 text-xs text-stone-400 flex md:block items-center justify-between gap-3">
           <p className="text-stone-200 font-medium">{session.user.name}</p>
           <p>{isAdmin(role) ? "Fondateur" : "Membre"}</p>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/login" });
-            }}
-          >
+          <form action="/deconnexion" method="post">
             <button className="md:mt-3 text-stone-400 hover:text-white underline" type="submit">Déconnexion</button>
           </form>
         </div>

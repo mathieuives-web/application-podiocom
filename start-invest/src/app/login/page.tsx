@@ -1,9 +1,11 @@
-import { signIn } from "@/auth";
+import { auth, signIn } from "@/auth";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
+import PasskeyLogin from "./PasskeyLogin";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const params = await searchParams;
+  if ((await auth())?.user) redirect("/"); // déjà connecté (session valide, non révoquée)
 
   async function login(formData: FormData) {
     "use server";
@@ -20,19 +22,36 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     }
   }
 
+  async function loginPasskey(formData: FormData) {
+    "use server";
+    try {
+      await signIn("passkey", { response: formData.get("response"), redirectTo: "/" });
+    } catch (error) {
+      if (error instanceof AuthError) redirect("/login?error=cle");
+      throw error;
+    }
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center px-4" style={{ background: "#f7f2ea" }}>
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center flex flex-col items-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.svg" alt="" width={72} height={72} className="mb-3" />
+          <img src="/icons/icon-192.png" alt="" width={72} height={72} className="mb-3 rounded-2xl" />
           <h1 className="text-2xl font-bold text-slate-900">Start Invest</h1>
           <p className="text-sm text-slate-500 mt-1">Pilotage du groupe</p>
         </div>
-        <form action={login} className="card space-y-4">
+        <div className="card space-y-3 mb-4">
+          <PasskeyLogin action={loginPasskey} />
+          {params?.error === "cle" && <p className="text-sm text-red-600">Face ID non reconnu ici : connectez-vous avec le mot de passe, puis activez Face ID dans Accès.</p>}
+          <p className="text-xs text-slate-500 text-center">Un seul geste : visage, empreinte ou code du téléphone. À activer une fois dans Accès.</p>
+        </div>
+        <details className="card" open={Boolean(params?.error) && params?.error !== "cle"}>
+        <summary className="cursor-pointer text-sm font-medium">Se connecter avec le mot de passe</summary>
+        <form action={login} className="space-y-4 mt-3">
           <div>
             <label className="label" htmlFor="email">Email</label>
-            <input className="input" id="email" name="email" type="email" required autoFocus />
+            <input className="input" id="email" name="email" type="email" required autoCapitalize="none" autoCorrect="off" />
           </div>
           <div>
             <label className="label" htmlFor="password">Mot de passe</label>
@@ -43,13 +62,14 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             <input className="input tracking-widest" id="code" name="code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456" />
             <p className="text-xs text-slate-400 mt-1">Laissez vide tant que la double authentification n&apos;est pas activée.</p>
           </div>
-          {params?.error && (
+          {params?.error && params.error !== "cle" && (
             <p className="text-sm text-red-600">
               Connexion refusée : identifiants ou code incorrects. Après 5 essais, l&apos;accès est bloqué 15 minutes.
             </p>
           )}
           <button type="submit" className="btn-primary w-full" style={{ background: "#7f1d1d" }}>Se connecter</button>
         </form>
+        </details>
       </div>
     </div>
   );

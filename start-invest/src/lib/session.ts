@@ -11,7 +11,7 @@ export async function requireUser(): Promise<SessionUser> {
   if (!id) redirect("/login");
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user || !user.active) redirect("/login");
-  return { id: user.id, name: user.name, email: user.email, role: user.role, totpEnabled: user.totpEnabled };
+  return { id: user.id, name: user.name, email: user.email, role: user.role, totpEnabled: await strongAuth(user) };
 }
 
 /**
@@ -21,10 +21,19 @@ export async function requireUser(): Promise<SessionUser> {
 export async function requireAdmin(): Promise<SessionUser> {
   const user = await requireUser();
   if (user.role !== "ADMIN") redirect("/agents");
-  if (!user.totpEnabled && process.env.REQUIRE_2FA !== "off") {
+  if (!user.totpEnabled) {
     redirect("/acces?msg=" + encodeURIComponent("Activez la double authentification pour accéder à cette fonction."));
   }
   return user;
 }
 
 export const isAdmin = (role?: string | null) => role === "ADMIN";
+
+/**
+ * Authentification forte : code à 6 chiffres activé OU clé d'accès (Face ID / empreinte / code du téléphone,
+ * qui combine l'appareil et la vérification de la personne).
+ */
+export async function strongAuth(user: { id: string; totpEnabled: boolean }) {
+  if (process.env.REQUIRE_2FA === "off" || user.totpEnabled) return true;
+  return (await prisma.passkey.count({ where: { userId: user.id } })) > 0;
+}

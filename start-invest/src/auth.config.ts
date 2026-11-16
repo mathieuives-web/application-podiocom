@@ -9,16 +9,15 @@ export const authConfig = {
     authorized({ auth, request }) {
       const isLoggedIn = !!auth?.user;
       const isOnLogin = request.nextUrl.pathname.startsWith("/login");
-      if (isOnLogin) {
-        if (isLoggedIn) return Response.redirect(new URL("/", request.nextUrl));
-        return true;
-      }
+      // La page de connexion décide elle-même (elle vérifie aussi que la session n'a pas été révoquée).
+      if (isOnLogin) return true;
       return isLoggedIn;
     },
     jwt({ token, user }) {
       if (user) {
         token.role = (user as { role?: string }).role;
         token.id = (user as { id?: string }).id;
+        token.sid = crypto.randomUUID(); // identifiant de CETTE session (révocable à la déconnexion)
       }
       return token;
     },

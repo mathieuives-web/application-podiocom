@@ -3,7 +3,8 @@ import { isAdmin, requireUser } from "@/lib/session";
 import QRCode from "qrcode";
 import { decryptJson } from "@/lib/crypto";
 import { totpUri } from "@/lib/totp";
-import { changeMyPassword, confirmTotp, createUser, resetUserTotp, startTotpSetup, toggleUser } from "./actions";
+import { changeMyPassword, confirmTotp, createUser, removePasskey, resetUserTotp, startTotpSetup, toggleUser } from "./actions";
+import PasskeyRegister from "./PasskeyRegister";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export default async function AccesPage({ searchParams }: { searchParams: Promis
   const users = admin ? await prisma.user.findMany({ orderBy: { createdAt: "asc" } }) : [];
   const logs = admin ? await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 100 }) : [];
   const meDb = await prisma.user.findUniqueOrThrow({ where: { id: me.id } });
+  const passkeys = await prisma.passkey.findMany({ where: { userId: me.id }, orderBy: { createdAt: "asc" } });
   let qr: string | null = null;
   let secret: string | null = null;
   if (setup && meDb.totpSecret && !meDb.totpEnabled) {
@@ -29,7 +31,27 @@ export default async function AccesPage({ searchParams }: { searchParams: Promis
       </div>
       {msg && <p className="card text-sm bg-sky-50 border-sky-200 text-sky-900">{msg}</p>}
 
-      <section className={`card space-y-3 ${meDb.totpEnabled ? "" : "border-amber-300 bg-amber-50"}`}>
+      <section className={`card space-y-3 ${passkeys.length ? "" : "border-emerald-300 bg-emerald-50"}`}>
+        <h2 className="font-semibold">Connexion par Face ID / empreinte {passkeys.length ? "✅ activée" : ""}</h2>
+        <p className="text-sm text-slate-600">
+          Activez-la sur chaque appareil (téléphone, ordinateur) : ensuite, un seul geste suffit pour vous connecter (visage, empreinte ou
+          code de déverrouillage du téléphone). Plus sûr qu&apos;un mot de passe : la clé ne quitte jamais l&apos;appareil et ne marche pas sur un faux site.
+        </p>
+        <PasskeyRegister />
+        {passkeys.length > 0 && (
+          <ul className="text-sm divide-y">
+            {passkeys.map((p) => (
+              <li key={p.id} className="py-1.5 flex justify-between gap-2">
+                <span>{p.name} · ajouté le {p.createdAt.toLocaleDateString("fr-FR")}{p.lastUsedAt ? ` · utilisé le ${p.lastUsedAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : ""}</span>
+                <form action={removePasskey.bind(null, p.id)}><button className="text-xs underline text-red-600">retirer</button></form>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-slate-500">Téléphone perdu : retirez-le ici depuis un autre appareil.</p>
+      </section>
+
+      <section className={`card space-y-3 ${meDb.totpEnabled || passkeys.length ? "" : "border-amber-300 bg-amber-50"}`}>
         <h2 className="font-semibold">Double authentification {meDb.totpEnabled ? "✅ activée" : "⚠️ non activée"}</h2>
         {meDb.totpEnabled ? (
           <p className="text-sm text-slate-600">Un code à 6 chiffres de votre application d&apos;authentification est demandé à chaque connexion.</p>

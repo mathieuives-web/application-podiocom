@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { auth } from "@/auth";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { strongAuth } from "@/lib/session";
 import { googleAuthUrl, googleConfigured } from "@/lib/connectors/google";
 
 // Démarre la connexion Google (Gmail + Drive) d'une société.
@@ -11,7 +12,7 @@ export async function GET(req: Request) {
   const session = await auth();
   const uid = (session?.user as { id?: string } | undefined)?.id;
   const me = uid ? await prisma.user.findUnique({ where: { id: uid } }) : null;
-  if (!me || !me.active || me.role !== "ADMIN" || (!me.totpEnabled && process.env.REQUIRE_2FA !== "off")) {
+  if (!me || !me.active || me.role !== "ADMIN" || !(await strongAuth(me))) {
     return NextResponse.redirect(new URL("/acces", req.url));
   }
   const companyId = new URL(req.url).searchParams.get("companyId") ?? "";

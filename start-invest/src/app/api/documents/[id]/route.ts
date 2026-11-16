@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { strongAuth } from "@/lib/session";
 import { readDocument } from "@/lib/documents";
 import { audit } from "@/lib/audit";
 
@@ -9,7 +10,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const session = await auth();
   const uid = (session?.user as { id?: string } | undefined)?.id;
   const me = uid ? await prisma.user.findUnique({ where: { id: uid } }) : null;
-  if (!me || !me.active || me.role !== "ADMIN" || (!me.totpEnabled && process.env.REQUIRE_2FA !== "off")) {
+  if (!me || !me.active || me.role !== "ADMIN" || !(await strongAuth(me))) {
     return new NextResponse("Accès refusé", { status: 403 });
   }
   const { id } = await params;

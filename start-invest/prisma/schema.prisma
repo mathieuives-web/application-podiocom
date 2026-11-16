@@ -24,6 +24,20 @@ model User {
   // Double authentification (code à 6 chiffres d'une application type Google Authenticator)
   totpSecret   String? // chiffré
   totpEnabled  Boolean  @default(false)
+  passkeys     Passkey[]
+}
+
+// Clés d'accès (Face ID, empreinte, code du téléphone) : connexion sans mot de passe, liée à l'appareil.
+model Passkey {
+  id         String    @id // identifiant de la clé (base64url)
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publicKey  Bytes
+  counter    Int       @default(0)
+  transports String? // liste séparée par des virgules
+  name       String // ex. « iPhone »
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
 }
 
 // Tentatives de connexion (blocage après 5 échecs en 15 minutes)
@@ -503,4 +517,10 @@ model Appointment {
   updatedAt   DateTime  @updatedAt
 
   @@index([companyId, start])
+}
+
+// Sessions révoquées à la déconnexion (par appareil) : un cookie revenu ne rouvre plus rien.
+model RevokedSession {
+  sid       String   @id
+  expiresAt DateTime
 }

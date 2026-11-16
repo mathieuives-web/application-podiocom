@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { signOut } from "@/auth";
 import { isAdmin, requireUser } from "@/lib/session";
 import { LINKS } from "../nav";
 
@@ -18,7 +17,7 @@ export default async function MenuPage() {
         ))}
       </ul>
       <p className="text-xs text-slate-500">Connecté : {me.name ?? me.email} · {isAdmin(me.role) ? "Fondateur" : "Membre"}</p>
-      <form action={async () => { "use server"; await signOut({ redirectTo: "/login" }); }}>
+      <form action="/deconnexion" method="post">
         <button className="btn-secondary w-full">Déconnexion</button>
       </form>
     </div>
