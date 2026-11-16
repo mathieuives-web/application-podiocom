@@ -156,6 +156,7 @@ export default async function AujourdhuiPage() {
         <section className="grid grid-cols-2 gap-2">
           <Link href="/atelier" className="btn-primary text-center">Demander un devis</Link>
           <Link href="/agents" className="btn-secondary text-center">Parler à un agent</Link>
+          <Link href="/recap" className="btn-secondary text-center col-span-2">Récap des 5 dernières heures</Link>
           <form action={runDevilsAdvocateNow}><button className="btn-secondary w-full">Avocat du diable</button></form>
           <form action={runControlNow}><button className="btn-secondary w-full">Relancer le contrôle</button></form>
         </section>

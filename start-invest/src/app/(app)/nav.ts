@@ -2,6 +2,7 @@
 export const LINKS = [
   { href: "/aujourdhui", label: "Aujourd'hui" },
   { href: "/resultats", label: "Résultats" },
+  { href: "/recap", label: "Récap des agents" },
   { href: "/mise-en-route", label: "Mise en route" },
   { href: "/agents", label: "Board d'agents IA" },
   { href: "/finances", label: "Finances" },
