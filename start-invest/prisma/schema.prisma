@@ -524,3 +524,18 @@ model RevokedSession {
   sid       String   @id
   expiresAt DateTime
 }
+
+// Connexion sur ordinateur validée depuis le téléphone (mot de passe + approbation Face ID sur le téléphone).
+model LoginRequest {
+  id         String   @id @default(cuid())
+  userId     String
+  secretHash String // empreinte du secret gardé par l'ordinateur (cookie)
+  code       String // 2 chiffres affichés sur l'ordinateur ET le téléphone
+  status     String   @default("PENDING") // PENDING | APPROVED | DENIED | USED
+  ip         String?
+  device     String?
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([userId, status])
+}

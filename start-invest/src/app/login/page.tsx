@@ -1,7 +1,9 @@
 import { auth, signIn } from "@/auth";
 import { AuthError } from "next-auth";
 import { redirect } from "next/navigation";
+import { cookies, headers } from "next/headers";
 import PasskeyLogin from "./PasskeyLogin";
+import { createRequest, LR_COOKIE, needsPhoneApproval, passwordCheck } from "@/lib/phone-approval";
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
   const params = await searchParams;
@@ -9,6 +11,18 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
 
   async function login(formData: FormData) {
     "use server";
+    // Face ID activé : mot de passe vérifié ici, puis validation sur le téléphone (le mot de passe seul ne suffit plus).
+    const h = await headers();
+    const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+    const user = await passwordCheck(String(formData.get("email") ?? ""), String(formData.get("password") ?? ""), ip);
+    if (!user) redirect("/login?error=1");
+    if (await needsPhoneApproval(user)) {
+      const ua = h.get("user-agent") ?? "";
+      const device = `${/Windows/.test(ua) ? "PC Windows" : /Macintosh/.test(ua) ? "Mac" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iPhone / iPad" : "Ordinateur"}${/Edg\//.test(ua) ? " · Edge" : /Chrome\//.test(ua) ? " · Chrome" : /Firefox\//.test(ua) ? " · Firefox" : /Safari\//.test(ua) ? " · Safari" : ""}`;
+      const r = await createRequest(user.id, ip, device);
+      (await cookies()).set(LR_COOKIE, `${r.id}.${r.secret}`, { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", maxAge: 300, path: "/" });
+      redirect("/login/telephone");
+    }
     try {
       await signIn("credentials", {
         email: formData.get("email"),
@@ -60,9 +74,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           <div>
             <label className="label" htmlFor="code">Code de sécurité (application d&apos;authentification)</label>
             <input className="input tracking-widest" id="code" name="code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="123456" />
-            <p className="text-xs text-slate-400 mt-1">Laissez vide tant que la double authentification n&apos;est pas activée.</p>
+            <p className="text-xs text-slate-400 mt-1">Laissez vide si vous validez avec votre téléphone (Face ID activé).</p>
           </div>
-          {params?.error && params.error !== "cle" && (
+          {params?.error === "telephone" && <p className="text-sm text-red-600">La validation par téléphone n&apos;a pas abouti : recommencez.</p>}
+          {params?.error && !["cle", "telephone"].includes(params.error) && (
             <p className="text-sm text-red-600">
               Connexion refusée : identifiants ou code incorrects. Après 5 essais, l&apos;accès est bloqué 15 minutes.
             </p>

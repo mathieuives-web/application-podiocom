@@ -7,6 +7,8 @@ import { decryptJson } from "@/lib/crypto";
 import { verifyTotp } from "@/lib/totp";
 import { audit } from "@/lib/audit";
 import { verifyAuthentication } from "@/lib/passkeys";
+import { consume, LR_COOKIE, needsPhoneApproval } from "@/lib/phone-approval";
+import { cookies } from "next/headers";
 
 const WINDOW = 15 * 60 * 1000;
 const MAX_FAILURES = 5;
@@ -45,6 +47,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       },
     }),
+    // Ordinateur : mot de passe déjà vérifié + demande approuvée sur le téléphone (Face ID).
+    Credentials({
+      id: "approval",
+      name: "Validation par téléphone",
+      credentials: { request: { label: "Demande", type: "text" } },
+      authorize: async (credentials, request) => {
+        const ip = request?.headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+        const raw = (await cookies()).get(LR_COOKIE)?.value ?? "";
+        const [id, secret] = raw.split(".");
+        if (!id || !secret || id !== String(credentials?.request ?? "")) return null;
+        const user = await consume(id, secret);
+        (await cookies()).delete(LR_COOKIE);
+        if (!user || !user.active) return null;
+        await prisma.loginAttempt.create({ data: { email: user.email, ip, success: true } });
+        await audit({ id: user.id, email: user.email }, "connexion", `ordinateur validé par téléphone — IP ${ip ?? "?"}`);
+        return { id: user.id, email: user.email, name: user.name, role: user.role };
+      },
+    }),
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },
@@ -78,6 +98,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Comparaison faite même si le compte n'existe pas, pour ne pas révéler les emails valides.
         const valid = await bcrypt.compare(password, user?.passwordHash ?? "$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinv");
         if (!user || !user.active || !valid) return fail("identifiants");
+        // Face ID activé : le mot de passe seul ne suffit plus, il faut la validation sur le téléphone.
+        if (await needsPhoneApproval(user)) return null;
         if (user.totpEnabled && user.totpSecret) {
           const { secret } = decryptJson<{ secret: string }>(user.totpSecret);
           if (!verifyTotp(secret, code)) return fail("code de sécurité");
