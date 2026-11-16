@@ -60,7 +60,16 @@ export default async function AccesPage({ searchParams }: { searchParams: Promis
       </section>
 
       <section className={`card space-y-3 ${meDb.totpEnabled || passkeys.length ? "" : "border-amber-300 bg-amber-50"}`}>
-        <h2 className="font-semibold">Double authentification {meDb.totpEnabled ? "✅ activée" : "⚠️ non activée"}</h2>
+        <h2 className="font-semibold">
+          Double authentification{" "}
+          {meDb.totpEnabled ? "✅ activée (code à 6 chiffres)" : passkeys.length ? `✅ activée (clé d'accès : ${passkeys.map((p) => p.name).join(", ")})` : "⚠️ non activée"}
+        </h2>
+        {!meDb.totpEnabled && passkeys.length > 0 && !qr ? (
+          <p className="text-sm text-slate-600">
+            Votre compte est protégé par votre clé d&apos;accès (Face ID / empreinte / Windows Hello) : sur ordinateur, la connexion se valide
+            depuis votre téléphone. Le code à 6 chiffres ci-dessous est <strong>facultatif</strong> (secours si vous n&apos;avez pas votre téléphone).
+          </p>
+        ) : null}
         {meDb.totpEnabled ? (
           <p className="text-sm text-slate-600">Un code à 6 chiffres de votre application d&apos;authentification est demandé à chaque connexion.</p>
         ) : qr && secret ? (
@@ -80,13 +89,17 @@ export default async function AccesPage({ searchParams }: { searchParams: Promis
             </div>
           </div>
         ) : (
-          <>
-            <p className="text-sm text-amber-900">
-              Obligatoire pour le fondateur : sans elle, l&apos;accès aux banques, aux documents et aux agents est bloqué.
-              Même si quelqu&apos;un vole votre mot de passe, il ne pourra pas se connecter sans votre téléphone.
-            </p>
-            <form action={startTotpSetup}><button className="btn-primary">Activer la double authentification</button></form>
-          </>
+          passkeys.length ? (
+            <form action={startTotpSetup}><button className="btn-secondary text-xs">Ajouter aussi un code à 6 chiffres (facultatif)</button></form>
+          ) : (
+            <>
+              <p className="text-sm text-amber-900">
+                Obligatoire pour le fondateur : sans elle, l&apos;accès aux banques, aux documents et aux agents est bloqué. Le plus simple :
+                activez Face ID / empreinte ci-dessus. Sinon, un code à 6 chiffres :
+              </p>
+              <form action={startTotpSetup}><button className="btn-primary">Activer le code à 6 chiffres</button></form>
+            </>
+          )
         )}
       </section>
 

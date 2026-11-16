@@ -37,7 +37,7 @@ const PLAN: { company: string; items: Item[] }[] = [
       { kind: "BANQUE", bank: /^cic\b|\bcic\b/i, bankLabel: "CIC (2e compte)" },
       { kind: "IMAP", count: 1, hint: "l'adresse Gmail de l'atelier" },
       { kind: "ROBOT", provider: "GTAPRO", name: "GTA Pro (factures, devis, OR)" },
-      { kind: "PORTAIL", name: "Autodata", url: "https://workshop.autodata-group.com/login", hint: "temps barème et valeurs constructeur" },
+      { kind: "PORTAIL", name: "WebDataBays", url: "https://webdatabays.com/auth/login?returnTo=https%3A%2F%2Fwebdatabays.com%2Ftouch%2Fsite%2Flayout%2FmakesOverview", hint: "temps barème et valeurs constructeur" },
       { kind: "FOURNISSEUR" },
       { kind: "WHATSAPP", number: "+33 7 66 09 94 39" },
     ],
@@ -121,8 +121,8 @@ export default async function ConnectChecklist() {
                       <input type="hidden" name="provider" value="IMAP" />
                       <input type="hidden" name="companyId" value={c.id} />
                       <input type="hidden" name="back" value="/connexions" />
-                      <input name="email" type="email" required placeholder="adresse@gmail.com" className="input py-1 text-xs w-56" autoComplete="off" />
-                      <input name="password" type="password" required placeholder="mot de passe d'application" className="input py-1 text-xs w-48" autoComplete="off" />
+                      <input name="email" type="text" inputMode="email" required placeholder="adresse@gmail.com (pas celle de Start Invest)" className="input py-1 text-xs w-64" autoComplete="off" autoCapitalize="none" data-lpignore="true" />
+                      <input name="password" type="password" required placeholder="mot de passe d'application" className="input py-1 text-xs w-48" autoComplete="new-password" />
                       <button className="btn-primary text-xs">Connecter la boîte</button>
                       <a className="text-xs underline" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">créer le mot de passe d&apos;application Gmail</a>
                     </form>
@@ -142,8 +142,8 @@ export default async function ConnectChecklist() {
                   <details className="w-full sm:ml-56 text-xs">
                     <summary className="cursor-pointer underline">Enregistrer identifiant + mot de passe (le robot se connecte seul)</summary>
                     <form action={saveRobotCredentials.bind(null, it.provider, company, undefined, undefined)} className="flex flex-wrap gap-2 items-center mt-1">
-                      <input name="login" required placeholder="Identifiant" className="input py-1 text-xs w-48" autoComplete="off" autoCapitalize="none" />
-                      <input name="password" type="password" required placeholder="Mot de passe" className="input py-1 text-xs w-44" autoComplete="off" />
+                      <input name="login" required placeholder="Identifiant du logiciel" className="input py-1 text-xs w-48" autoComplete="off" autoCapitalize="none" data-lpignore="true" />
+                      <input name="password" type="password" required placeholder="Mot de passe" className="input py-1 text-xs w-44" autoComplete="new-password" />
                       <button className="btn-primary text-xs">Enregistrer et connecter</button>
                       <span className="text-slate-500">Chiffrés, jamais montrés aux agents. Si le site demande un code SMS, utilisez plutôt « Se connecter ».</span>
                     </form>
@@ -162,8 +162,8 @@ export default async function ConnectChecklist() {
                   <details className="w-full sm:ml-56 text-xs">
                     <summary className="cursor-pointer underline">Enregistrer identifiant + mot de passe (le robot se connecte seul)</summary>
                     <form action={saveRobotCredentials.bind(null, "PORTAIL", company, it.name, it.url)} className="flex flex-wrap gap-2 items-center mt-1">
-                      <input name="login" required placeholder="Identifiant" className="input py-1 text-xs w-48" autoComplete="off" autoCapitalize="none" />
-                      <input name="password" type="password" required placeholder="Mot de passe" className="input py-1 text-xs w-44" autoComplete="off" />
+                      <input name="login" required placeholder="Identifiant du logiciel" className="input py-1 text-xs w-48" autoComplete="off" autoCapitalize="none" data-lpignore="true" />
+                      <input name="password" type="password" required placeholder="Mot de passe" className="input py-1 text-xs w-44" autoComplete="new-password" />
                       <button className="btn-primary text-xs">Enregistrer et connecter</button>
                       <span className="text-slate-500">Chiffrés, jamais montrés aux agents. Si le site demande un code SMS, utilisez plutôt « Se connecter ».</span>
                     </form>
@@ -172,7 +172,7 @@ export default async function ConnectChecklist() {
               );
             }
             if (it.kind === "FOURNISSEUR") {
-              const list = mine.filter((x) => x.provider === "PORTAIL" && x.label !== "Autodata");
+              const list = mine.filter((x) => x.provider === "PORTAIL" && !["Autodata", "WebDataBays"].includes(x.label ?? ""));
               count(list.length > 0);
               return (
                 <li key={k} className="space-y-1">
@@ -217,8 +217,8 @@ export default async function ConnectChecklist() {
                         <input type="hidden" name="companyId" value={c.id} />
                         <input type="hidden" name="back" value="/connexions" />
                         <input name="phoneNumberId" required placeholder="Phone number ID" className="input py-1 text-xs w-40" />
-                        <input name="accessToken" type="password" required placeholder="Jeton permanent" className="input py-1 text-xs w-40" autoComplete="off" />
-                        <input name="appSecret" type="password" required placeholder="Clé secrète de l'app" className="input py-1 text-xs w-40" autoComplete="off" />
+                        <input name="accessToken" type="password" required placeholder="Jeton permanent" className="input py-1 text-xs w-40" autoComplete="new-password" />
+                        <input name="appSecret" type="password" required placeholder="Clé secrète de l'app" className="input py-1 text-xs w-40" autoComplete="new-password" />
                         <button className="btn-primary text-xs">Connecter WhatsApp</button>
                       </form>
                     </details>
@@ -256,7 +256,7 @@ export default async function ConnectChecklist() {
                     <input type="hidden" name="provider" value="GITHUB" />
                     <input type="hidden" name="companyId" value={c.id} />
                     <input type="hidden" name="back" value="/connexions" />
-                    <input name="token" type="password" required placeholder="github_pat_... (lecture seule)" className="input py-1 text-xs w-56" autoComplete="off" />
+                    <input name="token" type="password" required placeholder="github_pat_... (lecture seule)" className="input py-1 text-xs w-56" autoComplete="new-password" />
                     <button className="btn-primary text-xs">Connecter</button>
                     <a className="text-xs underline" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer">créer le jeton</a>
                   </form>
@@ -275,7 +275,7 @@ export default async function ConnectChecklist() {
         <h2 className="text-lg font-bold">Tout connecter <span className="text-sm font-normal text-slate-500">— {done} / {total} faites</span></h2>
         <p className="text-sm text-slate-500">
           Tout est prêt : pour chaque ligne, cliquez et entrez vos identifiants. Les mots de passe sont chiffrés et ne sont jamais
-          montrés aux agents. Pour les logiciels sans connexion officielle (Auto Cerfa, GTA Pro, Autodata, fournisseurs), une fenêtre
+          montrés aux agents. Pour les logiciels sans connexion officielle (Auto Cerfa, GTA Pro, WebDataBays, fournisseurs), une fenêtre
           s&apos;ouvre : connectez-vous normalement puis cliquez « Je suis connecté ».
         </p>
       </div>

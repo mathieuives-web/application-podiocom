@@ -43,7 +43,7 @@ export default async function MiseEnRoutePage() {
   const hour = Number(process.env.DAILY_CONTROL_HOUR ?? 7);
 
   const security: Check[] = [
-    { ok: user.totpEnabled, label: "Double authentification activée sur votre compte", help: <Link href="/acces" className="underline">Activer dans Accès</Link> },
+    { ok: user.totpEnabled || (await prisma.passkey.count({ where: { userId: user.id } })) > 0, label: "Double authentification activée sur votre compte (code ou Face ID)", help: <Link href="/acces" className="underline">Activer dans Accès</Link> },
     { ok: !defaultPassword, label: "Mot de passe personnel (le mot de passe de départ a été changé)", help: <Link href="/acces" className="underline">Changer dans Accès</Link> },
     { ok: secret.length >= 32 && !/remplacer|placeholder|dev-/.test(secret), label: "Clé secrète du serveur (AUTH_SECRET) longue et unique", help: "Générée automatiquement au premier démarrage si vous n'en fournissez pas. Ne la changez plus ensuite (elle chiffre les accès bancaires et les documents)." },
     { ok: url.startsWith("https://"), label: "Site servi en HTTPS (NEXTAUTH_URL en https://)", help: "Indispensable : sans HTTPS, mots de passe et données circulent en clair." },

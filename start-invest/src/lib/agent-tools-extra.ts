@@ -75,13 +75,13 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   tools.push(
     {
       name: "lister_portails",
-      description: "Portails pros connectés pour ta société (Autodata, fournisseurs de pièces, cote...) et à quoi ils servent.",
+      description: "Portails pros connectés pour ta société (WebDataBays, fournisseurs de pièces, cote...) et à quoi ils servent.",
       input_schema: { type: "object", properties: { societe }, additionalProperties: false },
     },
     {
       name: "consulter_portail",
       description:
-        "Cherche une information RÉELLE dans un portail pro connecté (ex. Autodata : temps barème d'une opération, préconisation d'huile et capacité, couple de serrage, périodicité d'entretien ; fournisseur : prix et disponibilité d'une référence pour un véhicule). Donne une question précise avec le véhicule (immatriculation ou marque / modèle / motorisation / année). Prend 1 à 3 minutes. Consultation seulement : jamais de commande.",
+        "Cherche une information RÉELLE dans un portail pro connecté (ex. WebDataBays : temps barème d'une opération, préconisation d'huile et capacité, couple de serrage, périodicité d'entretien ; fournisseur : prix et disponibilité d'une référence pour un véhicule). Donne une question précise avec le véhicule (immatriculation ou marque / modèle / motorisation / année). Prend 1 à 3 minutes. Consultation seulement : jamais de commande.",
       input_schema: { type: "object", properties: { portail: { type: "string", description: "Nom du portail (voir lister_portails)" }, question: { type: "string" }, societe }, required: ["portail", "question"], additionalProperties: false },
     }
   );
@@ -104,7 +104,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
     tools.push(
       {
         name: "noter_rdv",
-        description: "Note un rendez-vous d'atelier (demandé par téléphone, mail, WhatsApp, site). Durée prévue = temps barème Autodata quand il est connu, sinon la durée annoncée. Vérifie d'abord la charge avec lister_rdv pour affecter le bon mécanicien.",
+        description: "Note un rendez-vous d'atelier (demandé par téléphone, mail, WhatsApp, site). Durée prévue = temps barème WebDataBays quand il est connu, sinon la durée annoncée. Vérifie d'abord la charge avec lister_rdv pour affecter le bon mécanicien.",
         input_schema: {
           type: "object",
           properties: {
@@ -141,7 +141,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
     tools.push({
       name: "preparer_document_atelier",
       description:
-        "Prépare un DEVIS ou un ORDRE DE RÉPARATION (OR) à saisir dans GTA Pro. Il part en BROUILLON : le fondateur le vérifie et le valide dans la page Atelier, puis le robot le saisit. AUCUNE valeur inventée : temps de main-d'œuvre lus dans Autodata (consulter_portail), prix des pièces lus chez le fournisseur ou dans GTA Pro, taux horaire de l'atelier tel qu'il est dans GTA Pro ; chaque ligne a sa source, sinon « à compléter » avec prix 0.",
+        "Prépare un DEVIS ou un ORDRE DE RÉPARATION (OR) à saisir dans GTA Pro. Il part en BROUILLON : le fondateur le vérifie et le valide dans la page Atelier, puis le robot le saisit. AUCUNE valeur inventée : temps de main-d'œuvre lus dans WebDataBays (consulter_portail), prix des pièces lus chez le fournisseur ou dans GTA Pro, taux horaire de l'atelier tel qu'il est dans GTA Pro ; chaque ligne a sa source, sinon « à compléter » avec prix 0.",
       input_schema: {
         type: "object",
         properties: {
@@ -158,7 +158,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
                 reference: { type: "string" },
                 quantite: { type: "number", description: "Heures pour la main-d'œuvre" },
                 prix_unitaire_ht: { type: "number", description: "0 si la valeur n'a pas pu être obtenue (source « à compléter »)" },
-                source: { type: "string", description: "D'où vient la valeur : « Autodata », le nom du portail fournisseur, « tarif GTA Pro », « facture fournisseur du ... », ou « à compléter » si introuvable. JAMAIS une estimation." },
+                source: { type: "string", description: "D'où vient la valeur : « WebDataBays », le nom du portail fournisseur, « tarif GTA Pro », « facture fournisseur du ... », ou « à compléter » si introuvable. JAMAIS une estimation." },
               },
               required: ["type", "designation", "quantite", "prix_unitaire_ht", "source"],
               additionalProperties: false,

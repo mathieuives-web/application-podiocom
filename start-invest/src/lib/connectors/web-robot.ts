@@ -17,7 +17,7 @@ type Step = { text: string; href: string | null; url?: string };
 
 const DANGER = /supprim|effac|delete|remove|annul|valid|payer|paiement|envoyer|send|sign|transf|cession|d[ée]clar|immatricul|commander|acheter|cr[ée]er|ajouter|modifier|enregistr|publi|diffus|d[ée]sactiv|r[ée]silier/i;
 const SAFE = /export|t[ée]l[ée]charg|excel|csv/i;
-const MAX_STEPS = 14;
+const MAX_STEPS = 20;
 
 const ActionSchema = z.object({
   action: z.enum(["cliquer", "aller", "termine", "impossible"]),
@@ -70,20 +70,81 @@ export async function loginIfNeeded(page: Page, username: string, password: stri
   return true;
 }
 
+/**
+ * Boutons et liens de la page, Y COMPRIS dans les cadres (iframes) : beaucoup de logiciels pros (WebDev, GTA Pro...)
+ * affichent leurs menus dans des cadres. Chaque élément reçoit un numéro unique (attribut data-robot).
+ */
 export async function clickables(page: Page) {
-  return page.evaluate(() => {
-    const els = Array.from(document.querySelectorAll('a, button, [role="button"], [role="menuitem"], input[type="button"], input[type="submit"], [onclick]')) as HTMLElement[];
-    return els
-      .map((el, i) => {
-        const r = el.getBoundingClientRect();
-        const text = (el.innerText || (el as HTMLInputElement).value || el.getAttribute("title") || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim().slice(0, 80);
-        const href = el.getAttribute("href");
-        el.setAttribute("data-robot", String(i));
-        return { i, text, href: href && !href.startsWith("javascript") ? href.slice(0, 200) : null, shown: r.width > 0 && r.height > 0 };
-      })
-      .filter((e) => (e.text || e.href) && e.shown)
-      .slice(0, 200);
-  });
+  const out: { i: number; text: string; href: string | null; shown: boolean; frame: number }[] = [];
+  let start = 0;
+  const frames = page.frames();
+  for (let f = 0; f < frames.length && out.length < 250; f++) {
+    const list = await frames[f]
+      .evaluate((offset) => {
+        const els = Array.from(document.querySelectorAll('a, button, [role="button"], [role="menuitem"], [role="tab"], [role="link"], input[type="button"], input[type="submit"], [onclick], li[class*="menu" i], td[onclick], div[class*="btn" i], span[class*="btn" i]')) as HTMLElement[];
+        return els.map((el, k) => {
+          const r = el.getBoundingClientRect();
+          const text = (el.innerText || (el as HTMLInputElement).value || el.getAttribute("title") || el.getAttribute("aria-label") || el.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 80);
+          const href = el.getAttribute("href");
+          el.setAttribute("data-robot", String(offset + k));
+          return { i: offset + k, text, href: href && !href.startsWith("javascript") ? href.slice(0, 200) : null, shown: r.width > 0 && r.height > 0 };
+        });
+      }, start)
+      .catch(() => []);
+    start += list.length + 1;
+    for (const e of list) if ((e.text || e.href) && e.shown) out.push({ ...e, frame: f });
+  }
+  // Doublons (même texte et même lien) retirés pour une liste lisible.
+  const seen = new Set<string>();
+  return out.filter((e) => {
+    const k = `${e.text}|${e.href ?? ""}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).slice(0, 220);
+}
+
+/** Élément numéroté (data-robot / data-champ), cherché dans tous les cadres de la page. */
+export async function inFrames(page: Page, selector: string): Promise<Loc> {
+  for (const f of page.frames()) {
+    const l = f.locator(selector);
+    if (await l.count().catch(() => 0)) return l.first();
+  }
+  return page.locator(selector).first();
+}
+
+/** Élément par son texte exact, dans la page ou ses cadres (rejeu d'un chemin mémorisé). */
+export async function textInFrames(page: Page, text: string): Promise<Loc> {
+  for (const f of page.frames()) {
+    const l = f.getByText(text, { exact: true });
+    if (await l.count().catch(() => 0)) return l.first();
+  }
+  return page.getByText(text, { exact: true }).first();
+}
+
+/** Texte visible de la page et de ses cadres. */
+export async function pageText(page: Page, max = 4000) {
+  const parts: string[] = [];
+  for (const f of page.frames()) {
+    const t = await f.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+    if (t.trim()) parts.push(t);
+  }
+  return parts.join("\n").replace(/\s+/g, " ").slice(0, max);
+}
+
+/** Capture de l'écran pour que l'IA VOIE la page (menus, icônes sans texte). */
+export async function screenFor(page: Page) {
+  const shot = await page.screenshot({ type: "jpeg", quality: 55 }).catch(() => null);
+  return shot ? [{ type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: shot.toString("base64") } }] : [];
+}
+
+/** Détecte un aller-retour sans fin (ex. « Liste » → « JOURNÉE » → « Liste » → « JOURNÉE ») et le signale à l'IA. */
+export function loopWarning(history: string[]) {
+  const h = history.slice(-6);
+  if (h.length >= 4 && h[h.length - 1] === h[h.length - 3] && h[h.length - 2] === h[h.length - 4]) {
+    return `\n⚠ BOUCLE : tu alternes « ${h[h.length - 2]} » et « ${h[h.length - 1]} » sans avancer. Choisis un AUTRE élément (regarde la capture d'écran : menu, onglet, icône, bouton « Rechercher » / « Afficher », sous-menu) ou réponds « impossible ».`;
+  }
+  return "";
 }
 
 /** Clique sur un élément et récupère le fichier s'il déclenche un téléchargement. */
@@ -100,7 +161,7 @@ async function clickAndMaybeDownload(page: Page, target: Loc) {
 }
 
 async function decide(goal: RobotGoal, page: Page, list: Awaited<ReturnType<typeof clickables>>, history: string[]) {
-  const text = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").slice(0, 2500);
+  const text = await pageText(page, 2500);
   const stream = anthropic().beta.messages.stream({
     model: "claude-opus-5-5",
     max_tokens: 2000,
@@ -110,17 +171,17 @@ async function decide(goal: RobotGoal, page: Page, list: Awaited<ReturnType<type
     messages: [
       {
         role: "user",
-        content: `Tu pilotes un navigateur connecté au logiciel professionnel d'un garage, en LECTURE SEULE.
+        content: [...(await screenFor(page)), { type: "text" as const, text: `Tu pilotes un navigateur connecté au logiciel professionnel d'un garage, en LECTURE SEULE. La capture d'écran ci-dessus montre la page.
 Objectif : ${goal.description}
 Le téléchargement du fichier est détecté automatiquement après un clic. Ne clique JAMAIS sur un bouton qui crée, modifie,
 supprime, valide, envoie ou paie quelque chose. Si l'objectif est inatteignable, réponds « impossible ».
 
 Page actuelle : ${page.url()} — « ${await page.title()} »
-Déjà fait : ${history.join(" → ") || "rien"}
+Déjà fait : ${history.join(" → ") || "rien"}${loopWarning(history)}
 Texte de la page (début) : ${text}
 
 Éléments cliquables (numéro : texte [lien]) :
-${list.map((e) => `${e.i} : ${e.text}${e.href ? ` [${e.href}]` : ""}`).join("\n")}`,
+${list.map((e) => `${e.i} : ${e.text}${e.href ? ` [${e.href}]` : ""}`).join("\n")}` }],
       },
     ],
   });
@@ -136,7 +197,7 @@ async function replay(page: Page, steps: Step[], username: string, password: str
       await page.goto(s.url, { waitUntil: "networkidle", timeout: 30000 }).catch(() => undefined);
       continue;
     }
-    const loc = s.text ? page.getByText(s.text, { exact: true }).first() : page.locator(`a[href="${s.href}"]`).first();
+    const loc = s.text ? await textInFrames(page, s.text) : await inFrames(page, `a[href="${s.href}"]`);
     if (!(await visible(loc))) return null;
     const file = await clickAndMaybeDownload(page, loc);
     if (file) return file;
@@ -217,7 +278,7 @@ export async function robotDownload(opts: { site: string; startUrl: string; user
         }
         history.push(`cliquer « ${el.text || el.href} »`);
         steps.push({ text: el.text, href: el.href });
-        got = await clickAndMaybeDownload(page, page.locator(`[data-robot="${el.i}"]`)).catch(() => null);
+        got = await clickAndMaybeDownload(page, await inFrames(page, `[data-robot="${el.i}"]`)).catch(() => null);
       }
       if (got) {
         files.push({ goal: goal.key, ...got });

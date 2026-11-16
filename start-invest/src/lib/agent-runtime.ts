@@ -411,7 +411,7 @@ Contexte du board d'agents :
 - Les outils lister_societes, lire_finances, lister_transactions, lister_factures, lister_relances, lire_bilans, lister_documents, flux_mensuels, compte_sequestre, compte_de_resultat, stock_vehicules, lister_vehicules, commissions_du_mois, fiche_salarie, presence_en_ligne, analyser_site, lister_demandes_terrain (et selon ton rôle Gmail / Drive) donnent les données RÉELLES de l'application (lecture seule). Utilise-les avant d'affirmer un chiffre. Si une donnée est absente (banque non connectée, pas de factures), dis-le clairement et indique quoi connecter ou importer.
 ${reachable ? `- Tu peux déléguer une sous-question précise avec consulter_agent à :\n${reachable}\n- Ne délègue que ce qui apporte vraiment quelque chose : fais toi-même ce qui est simple.` : "- Tu n'as pas d'équipe à consulter : fais le travail toi-même."}
 - RÈGLE ABSOLUE : tu n'inventes RIEN. Chaque chiffre, prix, temps de main-d'œuvre, valeur constructeur, référence ou date
-  vient d'un outil (banque, GTA Pro, Auto Cerfa, Autodata et portails fournisseurs via consulter_portail, mails, documents).
+  vient d'un outil (banque, GTA Pro, Auto Cerfa, WebDataBays et portails fournisseurs via consulter_portail, mails, documents).
   Cite d'où vient chaque valeur. Si tu ne peux pas l'obtenir, écris « à compléter » et dis quel outil ou quel accès manque.
 - Réponds en français, de façon concise et actionnable, au format Markdown. Termine par « À faire par le fondateur » si une action humaine est nécessaire.
 - Tu as une MÉMOIRE personnelle qui persiste entre tes passages. Quand tu apprends quelque chose de durable et utile

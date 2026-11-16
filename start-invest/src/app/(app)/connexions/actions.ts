@@ -32,6 +32,10 @@ export async function addIntegration(formData: FormData) {
     },
   });
   await audit(me, "connexion_outil_ajoutee", `${provider.name} — société ${integ.companyId}`);
+  if (provider.id === "IMAP" && creds.email && (await prisma.user.findUnique({ where: { email: creds.email.toLowerCase() } }))) {
+    await prisma.integration.delete({ where: { id: integ.id } });
+    redirect(`${backTo}?msg=${encodeURIComponent("Ce n'est pas une boîte mail : c'est votre adresse de connexion à Start Invest (votre navigateur l'a pré-remplie). Tapez l'adresse Gmail de la société et son mot de passe d'application.")}`);
+  }
   if (provider.id === "PORTAIL") {
     if (!/^https:\/\//.test(creds.url ?? "")) redirect(`/connexions?msg=${encodeURIComponent("Adresse du portail invalide (https://...).")}`);
     if (!creds.password) {
@@ -77,7 +81,7 @@ export async function syncNow(integrationId: string) {
   }
   let msg: string;
   try {
-    const r = await syncIntegration(integrationId);
+    const r = await syncIntegration(integrationId, { force: integ.provider === "BANQUE" });
     msg = `Synchronisé : ${r.accounts} compte(s), ${r.transactions} opération(s), ${r.invoices} facture(s).`;
   } catch (e) {
     msg = `Échec : ${(e as Error).message}`;
@@ -153,7 +157,7 @@ export async function quickConnect(provider: string, companyName: string, label?
   let integ = await prisma.integration.findFirst({ where: { provider, companyId: company.id, ...(provider === "PORTAIL" ? { label } : {}) } });
   if (!integ) {
     integ = await prisma.integration.create({
-      data: { companyId: company.id, provider, label: provider === "PORTAIL" ? label ?? "Portail" : null, credentials: encryptJson(provider === "PORTAIL" ? { name: label, url, purpose: label === "Autodata" ? "temps de main-d'œuvre et valeurs constructeur" : undefined } : url ? { url } : {}) },
+      data: { companyId: company.id, provider, label: provider === "PORTAIL" ? label ?? "Portail" : null, credentials: encryptJson(provider === "PORTAIL" ? { name: label, url, purpose: ["Autodata", "WebDataBays"].includes(label ?? "") ? "temps de main-d'œuvre et valeurs constructeur" : undefined } : url ? { url } : {}) },
     });
     await audit(me, "connexion_outil_ajoutee", `${provider} ${label ?? ""} — ${company.name}`);
   }
@@ -163,7 +167,7 @@ export async function quickConnect(provider: string, companyName: string, label?
 }
 
 /**
- * Identifiant + mot de passe d'un logiciel sans API (GTA Pro, Auto Cerfa, Autodata...), enregistrés chiffrés :
+ * Identifiant + mot de passe d'un logiciel sans API (GTA Pro, Auto Cerfa, WebDataBays...), enregistrés chiffrés :
  * le robot se connecte seul, maintenant et à chaque fois que la session du site expire.
  */
 export async function saveRobotCredentials(provider: string, companyName: string, label: string | undefined, url: string | undefined, formData: FormData) {
@@ -175,7 +179,7 @@ export async function saveRobotCredentials(provider: string, companyName: string
   const company = await prisma.company.findFirstOrThrow({ where: { name: companyName } });
   const { decryptJson } = await import("@/lib/crypto");
   let integ = await prisma.integration.findFirst({ where: { provider, companyId: company.id, ...(provider === "PORTAIL" ? { label } : {}) } });
-  const base = provider === "PORTAIL" ? { name: label, url, purpose: label === "Autodata" ? "temps de main-d'œuvre et valeurs constructeur" : undefined } : url ? { url } : {};
+  const base = provider === "PORTAIL" ? { name: label, url, purpose: ["Autodata", "WebDataBays"].includes(label ?? "") ? "temps de main-d'œuvre et valeurs constructeur" : undefined } : url ? { url } : {};
   const previous = integ ? decryptJson<Record<string, unknown>>(integ.credentials) : base;
   const creds = encryptJson({ ...base, ...previous, login, password });
   integ = integ

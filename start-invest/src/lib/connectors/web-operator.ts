@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { prisma } from "@/lib/prisma";
-import { clickables, launch, loginIfNeeded, visible } from "./web-robot";
+import { clickables, inFrames, textInFrames, launch, loginIfNeeded, loopWarning, pageText, screenFor, visible } from "./web-robot";
 
 // Opérateur web : pour les logiciels sans API qui n'ont pas d'export (ex. GTA Pro), le robot
 // 1) LIT des listes à l'écran (factures, devis, ordres de réparation) — lecture seule ;
@@ -38,35 +38,35 @@ export async function withSite<T>(acc: SiteAccess, fn: (page: Page) => Promise<T
 }
 
 async function fields(page: Page) {
-  return page.evaluate(() => {
-    const els = Array.from(document.querySelectorAll("input, textarea, select")) as (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[];
-    return els
-      .map((el, i) => {
-        const r = el.getBoundingClientRect();
-        const type = (el as HTMLInputElement).type ?? el.tagName.toLowerCase();
-        const id = el.id;
-        const label =
-          (id && document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent) ||
-          el.closest("label")?.textContent ||
-          el.getAttribute("aria-label") ||
-          el.getAttribute("placeholder") ||
-          el.getAttribute("title") ||
-          el.getAttribute("name") ||
-          "";
-        el.setAttribute("data-champ", String(i));
-        const options = el.tagName === "SELECT" ? Array.from((el as HTMLSelectElement).options).slice(0, 40).map((o) => o.text.trim()) : undefined;
-        return {
-          i,
-          type,
-          label: label.replace(/\s+/g, " ").trim().slice(0, 60),
-          value: type === "password" ? "(masqué)" : String(el.value ?? "").slice(0, 60),
-          options,
-          shown: r.width > 0 && r.height > 0 && type !== "hidden",
-        };
-      })
-      .filter((f) => f.shown && !["submit", "button", "image", "file", "password"].includes(f.type))
-      .slice(0, 120);
-  });
+  const out: { i: number; type: string; label: string; value: string; options?: string[]; shown: boolean }[] = [];
+  let offset = 0;
+  for (const frame of page.frames()) {
+    const list = await frame
+      .evaluate((start) => {
+        const els = Array.from(document.querySelectorAll("input, textarea, select")) as (HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement)[];
+        return els.map((el, k) => {
+          const i = start + k;
+          const r = el.getBoundingClientRect();
+          const type = (el as HTMLInputElement).type ?? el.tagName.toLowerCase();
+          const id = el.id;
+          const label =
+            (id && document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent) ||
+            el.closest("label")?.textContent ||
+            el.getAttribute("aria-label") ||
+            el.getAttribute("placeholder") ||
+            el.getAttribute("title") ||
+            el.getAttribute("name") ||
+            "";
+          el.setAttribute("data-champ", String(i));
+          const options = el.tagName === "SELECT" ? Array.from((el as HTMLSelectElement).options).slice(0, 40).map((o) => o.text.trim()) : undefined;
+          return { i, type, label: label.replace(/\s+/g, " ").trim().slice(0, 60), value: type === "password" ? "(masqué)" : String(el.value ?? "").slice(0, 60), options, shown: r.width > 0 && r.height > 0 && type !== "hidden" };
+        });
+      }, offset)
+      .catch(() => []);
+    offset += list.length + 1;
+    out.push(...list.filter((f) => f.shown && !["submit", "button", "image", "file", "password"].includes(f.type)));
+  }
+  return out.slice(0, 120);
 }
 
 const Action = z.object({
@@ -82,7 +82,7 @@ const COMMERCE = /panier|commander|commande\b|acheter|achat|valider|confirmer|en
 
 async function decide(mode: "lecture" | "saisie" | "consultation", goal: string, page: Page, history: string[], extra = "") {
   const [btns, flds] = await Promise.all([clickables(page), mode !== "lecture" ? fields(page) : Promise.resolve([])]);
-  const text = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").slice(0, 4000);
+  const text = await pageText(page, 4000);
   const rules =
     mode === "consultation"
       ? `MODE CONSULTATION : tu cherches une INFORMATION dans ce portail (base technique constructeur, catalogue fournisseur...). Tu peux taper dans les champs de recherche (immatriculation, VIN, référence, modèle) et cliquer sur rechercher / les résultats / les onglets. Quand l'information est à l'écran, « lire » (le texte est enregistré), puis « termine » avec la réponse exacte trouvée (valeurs, unités, références, prix, disponibilité) et où tu l'as lue. INTERDIT : ajouter au panier, commander, acheter, valider, réserver, payer. Si l'info n'existe pas dans le portail, « impossible » : n'invente jamais une valeur.`
@@ -98,12 +98,12 @@ async function decide(mode: "lecture" | "saisie" | "consultation", goal: string,
     messages: [
       {
         role: "user",
-        content: `Tu pilotes un navigateur connecté au logiciel de gestion d'un garage.
+        content: [...(await screenFor(page)), { type: "text" as const, text: `Tu pilotes un navigateur connecté au logiciel de gestion d'un garage. La capture d'écran ci-dessus montre la page actuelle.
 ${rules}
 Objectif : ${goal}${extra}
 
 Page : ${page.url()} — « ${await page.title()} »
-Déjà fait : ${history.slice(-25).join(" → ") || "rien"}
+Déjà fait : ${history.slice(-25).join(" → ") || "rien"}${loopWarning(history)}
 Texte de la page : ${text}
 
 Boutons et liens (numéro : texte [lien]) :
@@ -111,7 +111,7 @@ ${btns.map((e) => `${e.i} : ${e.text}${e.href ? ` [${e.href}]` : ""}`).join("\n"
           flds.length
             ? `\n\nChamps (numéro : type « libellé » = valeur actuelle [options]) :\n${flds.map((f) => `${f.i} : ${f.type} « ${f.label} » = ${f.value}${f.options ? ` [${f.options.join(" | ")}]` : ""}`).join("\n")}`
             : ""
-        }`,
+        }` }],
       },
     ],
   });
@@ -130,7 +130,7 @@ export async function readScreens(page: Page, acc: SiteAccess, key: string, goal
   const pathKey = `operator-path:${acc.site}:${key}`;
   const saved = await prisma.appSetting.findUnique({ where: { key: pathKey } });
   const captures: string[] = [];
-  const capture = async () => captures.push((await page.locator("body").innerText().catch(() => "")).slice(0, 60000));
+  const capture = async () => captures.push(await pageText(page, 60000));
   // 1) chemin connu (sans IA)
   if (saved) {
     try {
@@ -139,7 +139,7 @@ export async function readScreens(page: Page, acc: SiteAccess, key: string, goal
         if (s.read) await capture();
         else if (s.url) await page.goto(s.url, { waitUntil: "networkidle", timeout: 30000 });
         else if (s.text) {
-          const loc = page.getByText(s.text, { exact: true }).first();
+          const loc = await textInFrames(page, s.text);
           if (!(await visible(loc))) throw new Error("chemin périmé");
           await loc.click({ timeout: 10000 });
           await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
@@ -155,7 +155,7 @@ export async function readScreens(page: Page, acc: SiteAccess, key: string, goal
   // 2) navigation guidée par l'IA
   const steps: { text?: string; url?: string; read?: boolean }[] = [];
   const history: string[] = [];
-  for (let n = 0; n < 20; n++) {
+  for (let n = 0; n < 28; n++) {
     await loginIfNeeded(page, acc.username, acc.password);
     const { a, btns } = await decide("lecture", goal, page, history);
     if (a.action === "termine" || a.action === "impossible") {
@@ -188,12 +188,12 @@ export async function readScreens(page: Page, acc: SiteAccess, key: string, goal
       history.push(`refusé « ${el.text} » (lecture seule)`);
       continue;
     }
-    await page.locator(`[data-robot="${el.i}"]`).click({ timeout: 10000 }).catch(() => undefined);
+    await (await inFrames(page, `[data-robot="${el.i}"]`)).click({ timeout: 10000 }).catch(() => undefined);
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
     steps.push({ text: el.text });
     history.push(`cliquer « ${el.text} »`);
   }
-  if (!captures.length) throw new Error(`Liste introuvable après 20 étapes (${history.slice(-4).join(" → ")})`);
+  if (!captures.length) throw new Error(`Liste introuvable après 28 étapes (${history.slice(-4).join(" → ")})`);
   await prisma.appSetting.upsert({ where: { key: pathKey }, update: { value: JSON.stringify(steps) }, create: { key: pathKey, value: JSON.stringify(steps) } });
   return captures.join("\n\n=== page suivante ===\n\n");
 }
@@ -221,7 +221,7 @@ export async function fillDocument(page: Page, acc: SiteAccess, goal: string, da
       continue;
     }
     if (a.action === "remplir" || a.action === "choisir") {
-      const loc = page.locator(`[data-champ="${a.index}"]`);
+      const loc = await inFrames(page, `[data-champ="${a.index}"]`);
       if (!(await visible(loc))) {
         history.push(`champ ${a.index} introuvable`);
         continue;
@@ -247,14 +247,14 @@ export async function fillDocument(page: Page, acc: SiteAccess, goal: string, da
     }
     // Boîte de confirmation : acceptée seulement si elle ne parle pas de facturer, supprimer, encaisser...
     page.once("dialog", (d) => void (NEVER.test(d.message()) ? d.dismiss() : d.accept()).catch(() => undefined));
-    await page.locator(`[data-robot="${el.i}"]`).click({ timeout: 10000 }).catch(() => undefined);
+    await (await inFrames(page, `[data-robot="${el.i}"]`)).click({ timeout: 10000 }).catch(() => undefined);
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
     history.push(`cliquer « ${el.text} »`);
   }
   throw new Error(`Saisie non terminée après ${MAX_STEPS} étapes (${history.slice(-5).join(" → ")})`);
 }
 
-/** Cherche une information dans un portail (Autodata, catalogue fournisseur...) et renvoie la réponse + le texte lu. */
+/** Cherche une information dans un portail (WebDataBays, catalogue fournisseur...) et renvoie la réponse + le texte lu. */
 export async function consultSite(page: Page, acc: SiteAccess, question: string) {
   const history: string[] = [];
   const captures: string[] = [];
@@ -264,7 +264,7 @@ export async function consultSite(page: Page, acc: SiteAccess, question: string)
     if (a.action === "termine") return { reponse: a.raison, texteLu: captures.join("\n\n---\n\n").slice(0, 40000), page: page.url() };
     if (a.action === "impossible") return { reponse: `Introuvable dans ce portail : ${a.raison}`, texteLu: captures.join("\n\n---\n\n").slice(0, 20000), page: page.url() };
     if (a.action === "lire") {
-      captures.push((await page.locator("body").innerText().catch(() => "")).slice(0, 30000));
+      captures.push(await pageText(page, 30000));
       history.push("lire");
       continue;
     }
@@ -278,7 +278,7 @@ export async function consultSite(page: Page, acc: SiteAccess, question: string)
       continue;
     }
     if (a.action === "remplir" || a.action === "choisir") {
-      const loc = page.locator(`[data-champ="${a.index}"]`);
+      const loc = await inFrames(page, `[data-champ="${a.index}"]`);
       const v = String(a.valeur ?? "").slice(0, 200);
       if (a.action === "choisir") await loc.selectOption({ label: v }).catch(() => loc.selectOption(v)).catch(() => undefined);
       else {
@@ -299,7 +299,7 @@ export async function consultSite(page: Page, acc: SiteAccess, question: string)
       continue;
     }
     page.once("dialog", (d) => void d.dismiss().catch(() => undefined));
-    await page.locator(`[data-robot="${el.i}"]`).click({ timeout: 10000 }).catch(() => undefined);
+    await (await inFrames(page, `[data-robot="${el.i}"]`)).click({ timeout: 10000 }).catch(() => undefined);
     await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => undefined);
     history.push(`cliquer « ${el.text} »`);
   }

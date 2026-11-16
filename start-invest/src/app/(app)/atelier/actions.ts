@@ -14,7 +14,7 @@ export async function validateTask(id: string) {
   const draft = await prisma.robotTask.findUniqueOrThrow({ where: { id } });
   const lines = (JSON.parse(draft.payload).lignes ?? []) as { prix_unitaire_ht: number; source?: string }[];
   if (lines.some((l) => !l.prix_unitaire_ht || /compl[ée]ter/i.test(l.source ?? ""))) {
-    redirect("/atelier?msg=" + encodeURIComponent("Ce document a des lignes « à compléter » : complétez la demande (ou les accès Autodata / fournisseur) et faites-le préparer à nouveau."));
+    redirect("/atelier?msg=" + encodeURIComponent("Ce document a des lignes « à compléter » : complétez la demande (ou les accès WebDataBays / fournisseur) et faites-le préparer à nouveau."));
   }
   const t = await prisma.robotTask.update({ where: { id }, data: { status: "VALIDE", validatedBy: me.email ?? me.id, validatedAt: new Date(), error: null } });
   await audit(me, "atelier_document_valide", t.title);
@@ -42,7 +42,7 @@ export async function askAtelier(formData: FormData) {
       slug: "clients-devis-auto-rac-ives",
       userId: me.id,
       task: `Le fondateur demande ${type} : « ${demande} ». Tu n'inventes RIEN :
-1. Temps de main-d'œuvre et valeurs constructeur (huile, capacité, pièces de l'entretien) : consulter_portail sur Autodata pour CE véhicule.
+1. Temps de main-d'œuvre et valeurs constructeur (huile, capacité, pièces de l'entretien) : consulter_portail sur WebDataBays pour CE véhicule.
 2. Prix des pièces : consulter_portail sur le(s) portail(s) fournisseur(s) (lister_portails), ou le tarif de GTA Pro.
 3. Taux horaire : celui de l'atelier dans GTA Pro (lister_atelier / devis existants) ; s'il est inconnu, « à compléter ».
 Puis preparer_document_atelier avec la source de chaque ligne ; une valeur introuvable = prix 0 et source « à compléter ».

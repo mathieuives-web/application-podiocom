@@ -156,12 +156,12 @@ export const PROVIDERS: ProviderDef[] = [
   },
   {
     id: "PORTAIL",
-    name: "Portail pro : Autodata, fournisseurs de pièces, cotes...",
+    name: "Portail pro : WebDataBays, fournisseurs de pièces, cotes...",
     kind: "Gestion",
     description:
-      "Tout site professionnel avec identifiant (Autodata pour les temps et valeurs constructeur, catalogues des fournisseurs de pièces et de pneus, cote des véhicules...). Ajoutez-en un par site et connectez-vous une fois dans la fenêtre en direct : les agents y CHERCHENT les informations (temps barème, préconisation d'huile, prix, disponibilité) au lieu de les deviner. Consultation seulement : jamais de panier ni de commande.",
+      "Tout site professionnel avec identifiant (WebDataBays pour les temps et valeurs constructeur, catalogues des fournisseurs de pièces et de pneus, cote des véhicules...). Ajoutez-en un par site et connectez-vous une fois dans la fenêtre en direct : les agents y CHERCHENT les informations (temps barème, préconisation d'huile, prix, disponibilité) au lieu de les deviner. Consultation seulement : jamais de panier ni de commande.",
     fields: [
-      { name: "name", label: "Nom du portail", placeholder: "Autodata, Autodistribution, Oscaro Pro..." },
+      { name: "name", label: "Nom du portail", placeholder: "WebDataBays, Autodistribution, Oscaro Pro..." },
       { name: "url", label: "Adresse de connexion", placeholder: "https://..." },
       { name: "purpose", label: "À quoi il sert (pour les agents)", placeholder: "temps de main-d'œuvre et valeurs constructeur", optional: true },
       { name: "login", label: "Identifiant (facultatif)", optional: true },
@@ -188,8 +188,25 @@ export async function syncIntegration(integrationId: string, opts: { force?: boo
   try {
     let result: SyncResult;
     if (integ.provider === "BANQUE") {
+      // DSP2 : la banque n'autorise que 4 accès automatiques par jour et par compte (au-delà elle répond « timeout »).
+      // Synchro automatique toutes les 6 h ; bouton manuel au plus une fois par heure. Un échec compte comme un essai.
+      const key = `bank-attempt:${integ.id}`;
+      const last = Math.max(integ.lastSyncAt?.getTime() ?? 0, Number((await prisma.appSetting.findUnique({ where: { key } }))?.value) || 0);
+      const wait = opts.force ? 3600 * 1000 : 6 * 3600 * 1000;
+      if (last && Date.now() - last < wait) {
+        if (opts.force) throw Object.assign(new Error(`Synchro bancaire faite il y a moins d'une heure : la banque limite les accès automatiques (4 par jour). Réessayez après ${new Date(last + wait).toLocaleTimeString("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" })}.`), { soft: true });
+        return { accounts: 0, transactions: 0, invoices: 0 };
+      }
+      await prisma.appSetting.upsert({ where: { key }, update: { value: String(Date.now()) }, create: { key, value: String(Date.now()) } });
       result = await syncEnableBanking(integ, creds as unknown as BankCreds);
     } else if (integ.provider === "SHINE") {
+      // Shine Facture sans abonnement : un seul essai par jour au lieu de toutes les heures.
+      if (!opts.force && integ.status === "ERROR" && /abonnement Shine Facture/.test(integ.lastError ?? "")) {
+        const key = `shine-attempt:${integ.id}`;
+        const last = Number((await prisma.appSetting.findUnique({ where: { key } }))?.value) || 0;
+        if (Date.now() - last < 24 * 3600 * 1000) return { accounts: 0, transactions: 0, invoices: 0 };
+        await prisma.appSetting.upsert({ where: { key }, update: { value: String(Date.now()) }, create: { key, value: String(Date.now()) } });
+      }
       const fresh = await shineMcpFresh(creds as unknown as ShineMcpCreds);
       if (fresh.refreshed) {
         await prisma.integration.update({ where: { id: integ.id }, data: { credentials: encryptJson(fresh.creds) } });
@@ -237,6 +254,7 @@ export async function syncIntegration(integrationId: string, opts: { force?: boo
     console.log(`[synchro] ${integ.provider} ${integ.companyId} OK : ${result.accounts} compte(s), ${result.transactions} ligne(s), ${result.invoices} facture(s)`);
     return result;
   } catch (e) {
+    if ((e as { soft?: boolean }).soft) throw e; // simple « trop tôt » : l'état de la connexion ne change pas
     console.log(`[synchro] ${integ.provider} ${integ.companyId} ÉCHEC : ${(e as Error).message.slice(0, 300)}`);
     await prisma.integration.update({
       where: { id: integ.id },
