@@ -156,12 +156,12 @@ export const PROVIDERS: ProviderDef[] = [
   },
   {
     id: "PORTAIL",
-    name: "Portail pro : WebDataBays, fournisseurs de pièces, cotes...",
+    name: "Portail pro : fournisseurs de pièces, cotes...",
     kind: "Gestion",
     description:
-      "Tout site professionnel avec identifiant (WebDataBays pour les temps et valeurs constructeur, catalogues des fournisseurs de pièces et de pneus, cote des véhicules...). Ajoutez-en un par site et connectez-vous une fois dans la fenêtre en direct : les agents y CHERCHENT les informations (temps barème, préconisation d'huile, prix, disponibilité) au lieu de les deviner. Consultation seulement : jamais de panier ni de commande.",
+      "Tout site professionnel avec identifiant (catalogues des fournisseurs de pièces et de pneus, cote des véhicules...). Ajoutez-en un par site et connectez-vous une fois dans la fenêtre en direct : les agents y CHERCHENT les informations (temps barème, préconisation d'huile, prix, disponibilité) au lieu de les deviner. Consultation seulement : jamais de panier ni de commande.",
     fields: [
-      { name: "name", label: "Nom du portail", placeholder: "WebDataBays, Autodistribution, Oscaro Pro..." },
+      { name: "name", label: "Nom du portail", placeholder: "Autodistribution, Oscaro Pro..." },
       { name: "url", label: "Adresse de connexion", placeholder: "https://..." },
       { name: "purpose", label: "À quoi il sert (pour les agents)", placeholder: "temps de main-d'œuvre et valeurs constructeur", optional: true },
       { name: "login", label: "Identifiant (facultatif)", optional: true },

@@ -289,7 +289,7 @@ export default async function ConnectChecklist() {
         <h2 className="text-lg font-bold">Tout connecter <span className="text-sm font-normal text-slate-500">— {done} / {total} faites</span></h2>
         <p className="text-sm text-slate-500">
           Tout est prêt : pour chaque ligne, cliquez et entrez vos identifiants. Les mots de passe sont chiffrés et ne sont jamais
-          montrés aux agents. Pour les logiciels sans connexion officielle (Auto Cerfa, GTA Pro, WebDataBays, fournisseurs), une fenêtre
+          montrés aux agents. Pour les logiciels sans connexion officielle (Auto Cerfa, GTA Pro, fournisseurs), une fenêtre
           s&apos;ouvre : connectez-vous normalement puis cliquez « Je suis connecté ».
         </p>
       </div>
