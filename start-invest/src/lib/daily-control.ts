@@ -242,6 +242,7 @@ export async function redoCompany(companyId: string, userId?: string | null) {
     update: { value: JSON.stringify({ at: new Date().toISOString(), classement: cls }) },
     create: { key: `remise-a-plat:${companyId}`, value: JSON.stringify({ at: new Date().toISOString(), classement: cls }) },
   });
+  if ("erreur" in cls) throw new Error(`reclassement impossible : ${cls.erreur}`); // sera refait au prochain essai
   console.log(`[remise à plat] ${company.name} : classement ${JSON.stringify(cls)}, analyse complète lancée`);
   return runFullAnalysis(companyId, userId);
 }

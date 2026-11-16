@@ -7,6 +7,8 @@ export function humanError(raw: string | null | undefined): string {
   const bank = raw.match(/Banque ([^ ]+(?: [^ —]+)*?) indisponible/)?.[1];
   if (/\b408\b|timeout|timed out|etimedout|aspsp_timeout/.test(m))
     return `La banque${bank ? ` ${bank}` : ""} n'a pas répondu à temps : elle limite les accès automatiques (4 par jour et par compte). Rien à faire de votre côté, nouvel essai automatique dans quelques heures.`;
+  if (/credit balance is too low|purchase credits|billing/.test(m))
+    return "Crédit IA épuisé : tous les agents sont à l'arrêt. Rechargez le crédit sur console.anthropic.com → Plans & Billing (le travail reprend tout seul ensuite).";
   if (/\b429\b|too many|rate limit/.test(m)) return "Trop de demandes envoyées : le service demande de patienter. Nouvel essai automatique plus tard, rien à faire.";
   if (/accord .*expir|consent.*expir|session.*expir|\b401\b|unauthorized|invalid_grant/.test(m))
     return "L'autorisation a expiré : reconnectez ce service (bouton « Connecter » sur la page Connexions).";

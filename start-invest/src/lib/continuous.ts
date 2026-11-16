@@ -69,6 +69,9 @@ export async function runNextAgentJob() {
     const max = Number(process.env.AGENTS_MAX_RUNS_PER_DAY ?? 200);
     const today = await prisma.agentRun.count({ where: { kind: "CONTINU", startedAt: { gte: dayStart } } });
     if (today >= max) return null;
+    // Crédit IA épuisé : inutile d'enchaîner des échecs. On reteste toutes les 15 minutes pour repartir dès la recharge.
+    const credit = await prisma.appSetting.findUnique({ where: { key: "ia-credit-epuise" } });
+    if (credit && Date.now() - Number(credit.value) < 15 * 60 * 1000) return null;
     const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", hour: "numeric", hourCycle: "h23" }).formatToParts(new Date()).find((x) => x.type === "hour")?.value ?? 12);
     const list = (await jobs()).filter((j) => !j.daytime || (hour >= 7 && hour < 20));
     const stamps = new Map((await prisma.appSetting.findMany({ where: { key: { startsWith: "continu:" } } })).map((s) => [s.key, Number(s.value) || 0]));
@@ -80,7 +83,18 @@ export async function runNextAgentJob() {
     const key = `continu:${due.j.key}`;
     await prisma.appSetting.upsert({ where: { key }, update: { value: String(Date.now()) }, create: { key, value: String(Date.now()) } });
     console.log(`[agents en continu] ${due.j.slug}`);
-    await executeAgent({ slug: due.j.slug, kind: "CONTINU", companyId: due.j.companyId ?? null, task: due.j.task }).catch((e) => console.error("[agents en continu]", due.j.slug, (e as Error).message));
+    try {
+      await executeAgent({ slug: due.j.slug, kind: "CONTINU", companyId: due.j.companyId ?? null, task: due.j.task });
+      await prisma.appSetting.deleteMany({ where: { key: "ia-credit-epuise" } });
+    } catch (e) {
+      const msg = (e as Error).message;
+      console.error("[agents en continu]", due.j.slug, msg.slice(0, 200));
+      if (/credit balance is too low|purchase credits/i.test(msg)) {
+        // Pas un vrai passage : la tâche sera refaite dès que le crédit revient.
+        await prisma.appSetting.deleteMany({ where: { key } });
+        await prisma.appSetting.upsert({ where: { key: "ia-credit-epuise" }, update: { value: String(Date.now()) }, create: { key: "ia-credit-epuise", value: String(Date.now()) } });
+      }
+    }
     return due.j.slug;
   } finally {
     busy = false;

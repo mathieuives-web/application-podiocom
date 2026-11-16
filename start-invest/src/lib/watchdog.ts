@@ -31,6 +31,13 @@ export async function runWatchdog(): Promise<Surveillance> {
   const lastErrors = await prisma.agentRun.findMany({ where: { status: "ERROR", startedAt: { gte: new Date(now - 24 * 3600 * 1000) }, NOT: { error: { startsWith: "Bloqué" } } }, select: { agent: true, error: true }, take: 50 });
   if (lastErrors.length >= 3) problemes.push(`${lastErrors.length} travaux d'agents en échec sur 24 h (dernier : ${lastErrors[0].agent} — ${(lastErrors[0].error ?? "").slice(0, 120)}).`);
 
+  // 2 ter. Crédit IA épuisé : tout est à l'arrêt, c'est le problème n°1.
+  const credit = await prisma.appSetting.findUnique({ where: { key: "ia-credit-epuise" } });
+  const lastCreditError = await prisma.agentRun.findFirst({ where: { status: "ERROR", error: { contains: "credit balance" } }, orderBy: { startedAt: "desc" }, select: { startedAt: true } });
+  const okSince = lastCreditError ? await prisma.agentRun.count({ where: { status: "DONE", startedAt: { gt: lastCreditError.startedAt } } }) : 1;
+  if (credit || (lastCreditError && okSince === 0 && now - lastCreditError.startedAt.getTime() < 24 * 3600 * 1000))
+    problemes.unshift("🔴 CRÉDIT IA ÉPUISÉ : tous les agents sont à l'arrêt. Rechargez sur console.anthropic.com → Plans & Billing. Le travail reprend tout seul dans les 15 minutes qui suivent.");
+
   // 2 bis. Agents en continu : le travail ne doit jamais s'arrêter (sauf plafond journalier atteint).
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
     const { continuousStatus } = await import("@/lib/continuous");
