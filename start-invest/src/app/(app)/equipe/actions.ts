@@ -46,6 +46,8 @@ export async function updateEmployee(employeeId: string, formData: FormData) {
       rulesNote: s(formData.get("rulesNote")).slice(0, 2000) || null,
       role: s(formData.get("role")).slice(0, 80) || null,
       leaveDaysPerYear: Number(s(formData.get("leaveDaysPerYear")).replace(",", ".")) || 25,
+      weeklyHours: Number(s(formData.get("weeklyHours")).replace(",", ".")) || 35,
+      schedule: s(formData.get("schedule")).slice(0, 500) || null,
       active: formData.get("active") === "on",
       phone: s(formData.get("phone")).replace(/\D/g, "").replace(/^0(\d{9})$/, "33$1") || null,
       email: s(formData.get("email")).slice(0, 120) || null,
@@ -63,7 +65,7 @@ export async function addLeave(employeeId: string, formData: FormData) {
   if (!start || !end || end < start) back("Dates de congé invalides.");
   const typed = s(formData.get("days")).replace(",", ".");
   const days = typed ? Number(typed) : workingDays(start!, end!);
-  const type = ["CP", "RTT", "MALADIE", "SANS_SOLDE", "AUTRE"].includes(s(formData.get("type"))) ? s(formData.get("type")) : "CP";
+  const type = ["CP", "RTT", "MALADIE", "ECOLE", "SANS_SOLDE", "AUTRE"].includes(s(formData.get("type"))) ? s(formData.get("type")) : "CP";
   const l = await prisma.leave.create({ data: { employeeId, start: start!, end: end!, days, type, note: s(formData.get("note")).slice(0, 200) || null }, include: { employee: true } });
   await audit(me, "conge_ajoute", `${l.employee.firstName} : ${type} ${days} j`);
   revalidatePath("/equipe");

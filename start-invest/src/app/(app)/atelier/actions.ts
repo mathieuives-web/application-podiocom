@@ -51,3 +51,37 @@ Résume en 3 lignes ce que tu as préparé et ce qui reste à compléter.`,
   );
   redirect("/atelier?msg=" + encodeURIComponent("Demande transmise à l'agent Clients & devis : le brouillon apparaît ici dans une minute (rechargez la page)."));
 }
+
+/** Rendez-vous noté à la main par le fondateur. */
+export async function addAppointment(formData: FormData) {
+  const me = await requireAdmin();
+  const { atelierCompany, parisDateTime } = await import("@/lib/atelier");
+  const c = await atelierCompany();
+  const g = (k: string) => String(formData.get(k) ?? "").trim();
+  const start = parisDateTime(g("date"), g("heure") || "08:00");
+  if (!g("date") || Number.isNaN(start.getTime()) || !g("client") || !g("prestation")) redirect("/atelier?msg=" + encodeURIComponent("Date, client et prestation obligatoires."));
+  await prisma.appointment.create({
+    data: {
+      companyId: c.id,
+      start,
+      minutes: Math.max(10, Math.min(Number(g("minutes")) || 60, 720)),
+      client: g("client").slice(0, 120),
+      phone: g("telephone").slice(0, 40) || null,
+      vehicle: g("vehicule").slice(0, 120) || null,
+      work: g("prestation").slice(0, 300),
+      employeeId: g("employeeId") || null,
+      source: "fondateur",
+      createdBy: me.email ?? me.id,
+    },
+  });
+  await audit(me, "rdv_atelier_note", `${g("date")} ${g("heure")} ${g("client")}`);
+  revalidatePath("/atelier");
+}
+
+export async function setAppointmentStatus(id: string, status: string) {
+  const me = await requireAdmin();
+  if (!["PREVU", "CONFIRME", "EN_COURS", "TERMINE", "ANNULE", "ABSENT"].includes(status)) return;
+  const a = await prisma.appointment.update({ where: { id }, data: { status } });
+  await audit(me, "rdv_atelier_statut", `${a.client} → ${status}`);
+  revalidatePath("/atelier");
+}

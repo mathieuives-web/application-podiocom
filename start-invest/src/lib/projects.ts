@@ -123,8 +123,25 @@ const AUDIT_ARI = `Audit initial Auto Rac'Ives (16/11/2026) :
 - Priorité 2 : une vraie page « Auto Rac'Ives – garage mécanique à Montreuil-sur-Ille » (ou un petit site) : prestations, prix d'appel, marques entretenues, prise de rendez-vous, avis, zone (Montreuil-sur-Ille, Saint-Aubin-d'Aubigné, Melesse, Saint-Germain-sur-Ille, Chevaigné, Rennes nord), balisage AutoRepair.
 - Mots-clés : garage Montreuil-sur-Ille, garage Saint-Aubin-d'Aubigné, vidange Melesse, garage pas cher nord de Rennes, entretien voiture sportive Rennes (lien avec La Fabrique Automobile).`;
 
+// Équipe de l'atelier Auto Rac'Ives (donnée par le fondateur le 16/11/2026).
+const ATELIER_TEAM = [
+  { firstName: "Grégory", role: "Mécanicien", phone: "33663387738" },
+  { firstName: "Mathéo", role: "Apprenti mécanicien", phone: "33652532008", schedule: "Apprenti en alternance : calendrier école / entreprise à fournir par le fondateur (poser les semaines d'école en congé « École » dans Équipe)." },
+  { firstName: "Gérard", role: "Mécanicien", phone: "33784929277" },
+];
+
 /** Renseigne les sites / réseaux connus si le fondateur ne l'a pas fait, et donne l'audit initial aux agents Site & réseaux. */
 export async function ensureKnownPresence() {
+  const ari = await prisma.company.findFirst({ where: { name: "Auto Rac Ives" } });
+  if (ari) {
+    const norm = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const existing = await prisma.employee.findMany({ where: { companyId: ari.id } });
+    for (const m of ATELIER_TEAM) {
+      const e = existing.find((x) => norm(x.firstName) === norm(m.firstName));
+      if (!e) await prisma.employee.create({ data: { companyId: ari.id, firstName: m.firstName, role: m.role, phone: m.phone, schedule: m.schedule ?? null } });
+      else if (!e.phone) await prisma.employee.update({ where: { id: e.id }, data: { phone: m.phone, role: e.role ?? m.role } });
+    }
+  }
   for (const [name, p] of Object.entries(PRESENCE)) {
     const c = await prisma.company.findFirst({ where: { name } });
     if (!c) continue;

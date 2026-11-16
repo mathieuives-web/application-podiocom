@@ -81,8 +81,10 @@ const Reading = z.object({
   fournisseur: z.string().nullable(),
   date: z.string().nullable().describe("AAAA-MM-JJ si visible"),
   vehicule_ou_client: z.string().nullable().describe("Immatriculation, véhicule, client ou chantier concerné si mentionné"),
+  duree_minutes: z.number().int().nullable().describe("Temps passé indiqué par le salarié pour l'intervention (ex. « 1h20 » = 80), sinon null"),
+  intervention_terminee: z.boolean().describe("true si le salarié dit avoir fini / terminé le véhicule"),
   urgent: z.boolean(),
-  reponse: z.string().describe("Réponse courte et chaleureuse au salarié (1 à 2 phrases) confirmant ce qui a été compris, en le tutoyant ; demande l'info manquante essentielle s'il en manque une (ex. pour quel véhicule)"),
+  reponse: z.string().describe("Réponse courte et chaleureuse au salarié (1 à 2 phrases) confirmant ce qui a été compris, en le tutoyant ; demande l'info manquante essentielle s'il en manque une (ex. pour quel véhicule, ou le temps passé pour une intervention terminée)"),
 });
 
 let client: Anthropic | null = null;
@@ -173,11 +175,21 @@ export async function handleWebhook(payload: WaPayload) {
               merchant: r.fournisseur,
               spentAt: r.date ? parseDate(r.date) : null,
               vehicle: r.vehicule_ou_client,
+              minutes: r.duree_minutes,
               summary: r.resume,
               urgent: r.urgent,
             },
           });
           if (documentId) await prisma.document.update({ where: { id: documentId }, data: { status: "DONE", summary: `${r.type} — ${r.resume}` } });
+          // Atelier : « fini + immatriculation » -> le rendez-vous du jour de ce mécanicien passe à TERMINÉ.
+          if (employee && r.type === "INTERVENTION" && r.intervention_terminee && r.vehicule_ou_client) {
+            const plate = r.vehicule_ou_client.toUpperCase().match(/[A-Z]{2}-?\d{3}-?[A-Z]{2}/)?.[0]?.replace(/-/g, "");
+            if (plate) {
+              const since = new Date(Date.now() - 2 * 86400000);
+              const rdv = (await prisma.appointment.findMany({ where: { companyId: integ.companyId, employeeId: employee.id, start: { gte: since }, status: { in: ["PREVU", "CONFIRME", "EN_COURS"] } } })).find((a) => (a.vehicle ?? "").toUpperCase().replace(/[\s-]/g, "").includes(plate));
+              if (rdv) await prisma.appointment.update({ where: { id: rdv.id }, data: { status: "TERMINE", notes: [rdv.notes, `Terminé (WhatsApp ${employee.firstName}${r.duree_minutes ? `, ${r.duree_minutes} min` : ""})`].filter(Boolean).join(" · ").slice(0, 500) } });
+            }
+          }
           await sendWhatsApp(creds, m.from, r.reponse);
           console.log(`[whatsapp] ${integ.company.name} : ${r.type}${r.montant ? ` ${r.montant} €` : ""} de ${employee?.firstName ?? m.from}`);
         } catch (e) {

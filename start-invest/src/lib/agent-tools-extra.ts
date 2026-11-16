@@ -84,6 +84,51 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
       input_schema: { type: "object", properties: { portail: { type: "string", description: "Nom du portail (voir lister_portails)" }, question: { type: "string" }, societe }, required: ["portail", "question"], additionalProperties: false },
     }
   );
+  if (canSeeAtelier(agent) || agent.slug.startsWith("salarie-")) {
+    tools.push(
+      {
+        name: "lister_rdv",
+        description: "Rendez-vous de l'atelier Auto Rac'Ives sur une période : date et heure, durée prévue, client, véhicule, prestation, mécanicien affecté, statut, source. Plus la charge prévue par mécanicien et par jour.",
+        input_schema: { type: "object", properties: { du: { type: "string", description: "AAAA-MM-JJ, défaut aujourd'hui" }, au: { type: "string", description: "AAAA-MM-JJ, défaut +7 jours" }, mecanicien: { type: "string" } }, additionalProperties: false },
+      },
+      {
+        name: "rentabilite_atelier",
+        description:
+          "Rentabilité et occupation de chaque mécanicien sur une période : heures de présence prévues (contrat moins congés et école), heures planifiées en rendez-vous, temps passés déclarés sur WhatsApp, nombre d'interventions, taux d'occupation et de productivité. Indique ce qui manque pour un calcul complet (heures vendues GTA Pro).",
+        input_schema: { type: "object", properties: { du: { type: "string" }, au: { type: "string" }, mecanicien: { type: "string" } }, additionalProperties: false },
+      }
+    );
+  }
+  if (["planning-atelier-auto-rac-ives", "clients-devis-auto-rac-ives", "courrier-auto-rac-ives", "dg-auto-rac-ives", "secretariat-auto-rac-ives"].includes(agent.slug)) {
+    tools.push(
+      {
+        name: "noter_rdv",
+        description: "Note un rendez-vous d'atelier (demandé par téléphone, mail, WhatsApp, site). Durée prévue = temps barème Autodata quand il est connu, sinon la durée annoncée. Vérifie d'abord la charge avec lister_rdv pour affecter le bon mécanicien.",
+        input_schema: {
+          type: "object",
+          properties: {
+            date: { type: "string", description: "AAAA-MM-JJ" },
+            heure: { type: "string", description: "HH:MM" },
+            duree_minutes: { type: "integer" },
+            client: { type: "string" },
+            telephone: { type: "string" },
+            vehicule: { type: "string", description: "Marque modèle immatriculation" },
+            prestation: { type: "string" },
+            mecanicien: { type: "string", description: "Prénom (Grégory, Gérard, Mathéo...)" },
+            source: { type: "string" },
+            notes: { type: "string" },
+          },
+          required: ["date", "heure", "client", "prestation"],
+          additionalProperties: false,
+        },
+      },
+      {
+        name: "modifier_rdv",
+        description: "Modifie un rendez-vous : statut (CONFIRME, EN_COURS, TERMINE, ANNULE, ABSENT), mécanicien, date / heure, durée, notes.",
+        input_schema: { type: "object", properties: { id: { type: "string" }, statut: { type: "string", enum: ["PREVU", "CONFIRME", "EN_COURS", "TERMINE", "ANNULE", "ABSENT"] }, mecanicien: { type: "string" }, date: { type: "string" }, heure: { type: "string" }, duree_minutes: { type: "integer" }, notes: { type: "string" } }, required: ["id"], additionalProperties: false },
+      }
+    );
+  }
   if (canSeeAtelier(agent)) {
     tools.push({
       name: "lister_atelier",
@@ -178,7 +223,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   return tools;
 }
 
-export const EXTRA_TOOL_NAMES = new Set(["lister_portails", "consulter_portail", "boites_mail", "mail_enregistrer_facture", "lister_atelier", "preparer_document_atelier", "lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
+export const EXTRA_TOOL_NAMES = new Set(["lister_rdv", "rentabilite_atelier", "noter_rdv", "modifier_rdv", "lister_portails", "consulter_portail", "boites_mail", "mail_enregistrer_facture", "lister_atelier", "preparer_document_atelier", "lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
 
 async function scopeCompany(agent: AgentDef, name?: string) {
   const all = await prisma.company.findMany({ where: { active: true } });
@@ -395,6 +440,13 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
         take: 300,
       });
       return rows.map((r) => ({ id: r.id, date: r.createdAt.toISOString().slice(0, 16), societe: r.company.name, de: r.fromName ?? r.fromPhone, type: r.kind, resume: r.summary, texte: r.text, montant: r.amount, fournisseur: r.merchant, dateDepense: r.spentAt?.toISOString().slice(0, 10) ?? null, vehiculeOuClient: r.vehicle, urgent: r.urgent, photo: Boolean(r.documentId), statut: r.status }));
+    }
+    case "lister_rdv":
+    case "rentabilite_atelier":
+    case "noter_rdv":
+    case "modifier_rdv": {
+      const { atelierTool } = await import("@/lib/atelier");
+      return atelierTool(name, input, agent);
     }
     case "lister_portails": {
       const c = await scopeCompany(agent, soc);

@@ -9,7 +9,7 @@ import { addLeave, createEmployee, deleteLeave, markPaid, recompute, setCommissi
 export const dynamic = "force-dynamic";
 
 const TYPES: Record<string, string> = { ACHAT: "Achat", VENTE: "Vente", CREDIT: "Crédit", GARANTIE: "Garantie", MANUEL: "Manuel" };
-const LEAVES: Record<string, string> = { CP: "Congés payés", RTT: "RTT", MALADIE: "Maladie", SANS_SOLDE: "Sans solde", AUTRE: "Autre" };
+const LEAVES: Record<string, string> = { CP: "Congés payés", RTT: "RTT", MALADIE: "Maladie", ECOLE: "École (apprenti)", SANS_SOLDE: "Sans solde", AUTRE: "Autre" };
 const monthLabel = (m: string) => new Date(`${m}-15T12:00:00Z`).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 
 export default async function EquipePage({ searchParams }: { searchParams: Promise<{ mois?: string; msg?: string }> }) {
@@ -153,6 +153,8 @@ export default async function EquipePage({ searchParams }: { searchParams: Promi
                       <label>Poste <input name="role" defaultValue={e.role ?? ""} className="input py-1 text-xs w-36" /></label>
                       <label>Portable (WhatsApp) <input name="phone" defaultValue={e.phone ?? ""} placeholder="06 12 34 56 78" className="input py-1 text-xs w-32" /></label>
                       <label>E-mail <input name="email" defaultValue={e.email ?? ""} className="input py-1 text-xs w-40" /></label>
+                      <label>Heures / semaine <input name="weeklyHours" defaultValue={e.weeklyHours} className="input py-1 text-xs w-14" /></label>
+                      <label className="w-full">Rythme / horaires <input name="schedule" defaultValue={e.schedule ?? ""} placeholder="ex. apprenti : 2 semaines école / 2 semaines atelier" className="input py-1 text-xs w-full" /></label>
                       <label>Congés / an <input name="leaveDaysPerYear" defaultValue={e.leaveDaysPerYear} className="input py-1 text-xs w-14" /></label>
                       <label className="flex items-center gap-1"><input type="checkbox" name="active" defaultChecked={e.active} /> actif</label>
                       <button className="btn-primary text-xs">Enregistrer</button>

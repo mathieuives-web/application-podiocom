@@ -106,6 +106,7 @@ async function employeeAgents(fileAgents: AgentDef[]): Promise<AgentDef[]> {
     .catch(() => []);
   return emps.map((e) => {
     const boss =
+      fileAgents.find((a) => a.slug.startsWith("planning-atelier-") && a.structure === e.company.name) ??
       fileAgents.find((a) => a.slug.startsWith("directeur-ventes-") && a.structure === e.company.name) ??
       fileAgents.find((a) => a.slug.startsWith("dg-") && a.structure === e.company.name);
     const slug = employeeAgentSlug(e);
@@ -113,7 +114,9 @@ async function employeeAgents(fileAgents: AgentDef[]): Promise<AgentDef[]> {
       slug,
       name: slug,
       title: e.firstName,
-      description: `Agent personnel de ${e.firstName}${e.role ? ` (${e.role})` : ""} : ses véhicules achetés et vendus, ses commissions (même versées plusieurs mois après) et ses congés.`,
+      description: boss?.slug.startsWith("planning-atelier-")
+        ? `Agent personnel de ${e.firstName}${e.role ? ` (${e.role})` : ""} : ses rendez-vous, interventions, temps passés, rentabilité et congés.`
+        : `Agent personnel de ${e.firstName}${e.role ? ` (${e.role})` : ""} : ses véhicules achetés et vendus, ses commissions (même versées plusieurs mois après) et ses congés.`,
       model: "sonnet",
       tools: [],
       skills: ["suivi individuel", "commissions", "congés"],
@@ -121,7 +124,13 @@ async function employeeAgents(fileAgents: AgentDef[]): Promise<AgentDef[]> {
       parent: boss?.slug ?? null,
       structure: e.company.name,
       file: "(salarié — page Équipe)",
-      prompt: `Tu es l'agent personnel de ${e.firstName} ${e.lastName}`.trim() + `, ${e.role ?? "salarié"} chez ${e.company.name}.
+      prompt: boss?.slug.startsWith("planning-atelier-")
+        ? `Tu es l'agent personnel de ${e.firstName}, ${e.role ?? "mécanicien"} à l'atelier ${e.company.name}.
+Ton identifiant salarié est « ${e.id} ». Tu suis SES rendez-vous et interventions (lister_rdv avec mecanicien="${e.firstName}"),
+ses temps passés déclarés sur WhatsApp et sa rentabilité (rentabilite_atelier), ses congés et, s'il est apprenti, son
+rythme école / entreprise (fiche_salarie avec salarie="${e.id}"). Chiffre tout à partir des outils, n'invente rien.
+Donne-lui un conseil concret pour gagner du temps ou mieux déclarer ses interventions.${e.schedule ? `\nRythme : ${e.schedule}` : ""}`
+        : `Tu es l'agent personnel de ${e.firstName} ${e.lastName}`.trim() + `, ${e.role ?? "salarié"} chez ${e.company.name}.
 Ton identifiant salarié est « ${e.id} » : appelle fiche_salarie avec salarie="${e.id}" pour avoir SES données
 (règles de commission de son contrat, véhicules achetés et vendus, commissions dues et versées, congés).
 Tu réponds sur lui seul : ce qu'il a vendu et acheté, ce qu'il a touché et ce qui lui reste dû (même pour des ventes de

@@ -457,7 +457,8 @@ export async function executeAgent(opts: {
     const personal = agent.slug.startsWith("salarie-");
     const tools: Anthropic.Beta.BetaToolUnion[] = [
       ...(personal ? DATA_TOOLS.filter((t) => t.name === "fiche_salarie") : DATA_TOOLS),
-      ...(personal ? [] : extraTools(agent)),
+      // Agent d'un mécanicien : en plus, SES rendez-vous et SA rentabilité (filtrés sur lui dans l'outil).
+      ...(personal ? extraTools(agent).filter((t) => ["lister_rdv", "rentabilite_atelier"].includes(t.name)) : extraTools(agent)),
       {
         name: "mettre_a_jour_memoire",
         description:

@@ -374,6 +374,8 @@ model Employee {
   rules              String    @default("{}")
   rulesNote          String? // résumé / conditions particulières du contrat
   leaveDaysPerYear   Float     @default(25)
+  weeklyHours        Float    @default(35) // heures de présence prévues par semaine (atelier : base de la rentabilité)
+  schedule           String? // horaires / rythme (ex. apprenti : semaines école et entreprise)
   contractDocumentId String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -437,6 +439,7 @@ model FieldRequest {
   merchant   String?
   spentAt    DateTime?
   vehicle    String? // véhicule ou client concerné si mentionné
+  minutes     Int? // temps passé déclaré par le salarié (intervention)
   summary    String? // résumé par l'IA
   urgent     Boolean   @default(false)
   status     String    @default("NOUVEAU") // NOUVEAU | TRAITE
@@ -479,4 +482,25 @@ model RobotTask {
   updatedAt   DateTime  @updatedAt
 
   @@index([status])
+}
+
+// ------------------------------------------------------------------ rendez-vous et planning d'atelier
+model Appointment {
+  id          String    @id @default(cuid())
+  companyId   String
+  start       DateTime
+  minutes     Int       @default(60) // durée prévue (temps barème Autodata quand connu)
+  client      String
+  phone       String?
+  vehicle     String? // marque modèle immatriculation
+  work        String // prestation prévue
+  employeeId  String? // mécanicien affecté
+  status      String    @default("PREVU") // PREVU | CONFIRME | EN_COURS | TERMINE | ANNULE | ABSENT
+  source      String? // téléphone, mail, WhatsApp, site, agent...
+  notes       String?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([companyId, start])
 }

@@ -105,6 +105,14 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
           .then(() => log.push("Point des projets : fait"))
           .catch((e) => log.push(`  ⚠ Point des projets : ${(e as Error).message}`));
       }
+      // Chef d'atelier : planning, suivi WhatsApp et rentabilité des mécaniciens, chaque matin.
+      for (const c of companies) {
+        const chef = agents.find((a) => a.slug.startsWith("planning-atelier-") && a.structure === c.name);
+        if (!chef) continue;
+        await executeAgent({ slug: chef.slug, kind: "DAILY", companyId: c.id, task: `Matin du ${date} à l'atelier ${c.name} : suis exactement ta procédure du matin${new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday" ? ", plus le bilan du lundi" : ""}.` })
+          .then((r) => reports.push(`### ${chef.title} (${c.name})\n${r.output}`))
+          .catch((e) => log.push(`  ⚠ ${chef.title} ${c.name} : ${(e as Error).message}`));
+      }
       // Site & réseaux : TOUS LES JOURS (référencement, avis, publication du jour) ; audit complet le lundi.
       const monday = new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday";
       for (const c of companies.filter((x) => x.website || x.instagram || x.facebook || x.tiktok || x.googleBusiness || x.linkedin)) {
