@@ -137,10 +137,10 @@ export default async function ConnectChecklist() {
               return (
                 <li key={k} className="flex flex-wrap items-center gap-2">
                   <span className="w-56 text-sm">{it.name}</span>
-                  <Status ok={ok} warn={Boolean(i && connectedRobot(i))}>{ok ? `connecté${i?.lastSyncAt ? `, lu le ${i.lastSyncAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : ""}` : i?.lastError ? humanError(i.lastError) : "à connecter"}</Status>
+                  <Status ok={ok} warn={Boolean(i && connectedRobot(i))}>{ok ? `connecté${i?.lastSyncAt ? `, lu le ${i.lastSyncAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : ""}` : i && connectedRobot(i) ? `identifiants enregistrés ✅ (inutile de les retaper)${i.lastError ? ` — ${humanError(i.lastError)}` : " — le robot se connecte, rechargez dans 2 à 5 minutes"}` : i?.lastError ? humanError(i.lastError) : "à connecter"}</Status>
                   <form action={quickConnect.bind(null, it.provider, company, undefined, undefined)}><button className="btn-primary text-xs">{ok ? "Se reconnecter" : "Se connecter"}</button></form>
                   {i && connectedRobot(i) && <form action={syncNow.bind(null, i.id)}><button className="text-xs underline">lire maintenant</button></form>}
-                  <details open={!ok} className="w-full sm:ml-56 text-xs">
+                  <details open={!(i && connectedRobot(i))} className="w-full sm:ml-56 text-xs">
                     <summary className="cursor-pointer underline">Identifiant + mot de passe, une seule fois : ensuite le robot se connecte seul chaque jour</summary>
                     <form action={saveRobotCredentials.bind(null, it.provider, company, undefined, undefined)} className="flex flex-wrap gap-2 items-center mt-1">
                       <input name="login" required placeholder="Identifiant du logiciel" className="input py-1 text-xs w-48" autoComplete="off" autoCapitalize="none" data-lpignore="true" />

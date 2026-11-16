@@ -58,10 +58,32 @@ export async function loginIfNeeded(page: Page, username: string, password: stri
   }
   if (user) await user.fill(username);
   await pwd.fill(password);
-  const submit = page.locator('button[type="submit"], input[type="submit"], button:has-text("Connexion"), button:has-text("Se connecter"), button:has-text("Login")').first();
+  const submit = page.locator('button[type="submit"], input[type="submit"], input[type="image"], button:has-text("Connexion"), button:has-text("Se connecter"), button:has-text("Login"), [title*="connexion" i], [value*="connexion" i]').first();
   if (await visible(submit)) await submit.click().catch(() => pwd.press("Enter"));
-  else await pwd.press("Enter");
+  else {
+    await pwd.press("Enter");
+    await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
+    // Sites WEBDEV (GTA Pro...) : le bouton « Connexion » est une IMAGE sans texte et Entrée ne fait rien.
+    // On clique le premier bouton qui suit le mot de passe dans l'ordre de tabulation (hors « mot de passe oublié »).
+    if (await visible(pwd)) {
+      const target = await pwd.evaluate((el) => {
+        const t0 = (el as HTMLElement).tabIndex || 0;
+        const all = [...document.querySelectorAll<HTMLElement>("button, input[type=button], input[type=image], a[onclick], a[id]")].filter((b) => {
+          const r = b.getBoundingClientRect();
+          const txt = (b.innerText || (b as HTMLInputElement).value || b.title || "").toLowerCase();
+          return r.width > 0 && r.height > 0 && !/oubli|forgot|vid[ée]o|support|aide/.test(txt);
+        });
+        const after = all.filter((b) => b.tabIndex > t0).sort((a, b) => a.tabIndex - b.tabIndex);
+        const pick = after[0] ?? all.find((b) => el.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+        if (!pick) return null;
+        pick.setAttribute("data-robot-submit", "1");
+        return true;
+      }).catch(() => null);
+      if (target) await page.locator('[data-robot-submit="1"]').first().click().catch(() => undefined);
+    }
+  }
   await page.waitForLoadState("networkidle", { timeout: 20000 }).catch(() => undefined);
+  await page.waitForTimeout(1500);
   if (await visible(page.locator('input[type="password"]').first())) {
     const txt = (await page.locator("body").innerText().catch(() => "")).slice(0, 2000);
     if (/code|sms|v[ée]rification|double|2fa|captcha/i.test(txt)) throw new Error("Le site demande un code de vérification (SMS / e-mail) ou un captcha : la connexion automatique est bloquée. Désactivez la double vérification pour ce compte ou créez un utilisateur dédié en lecture.");

@@ -40,6 +40,17 @@ export function startScheduler() {
   started = true;
   lastSync = Date.now(); // première synchro horaire une heure après le démarrage
   setTimeout(tick, 60 * 1000);
+  // Au démarrage (nouvelle version en ligne) : les robots en échec réessaient tout de suite, sans attendre leur créneau.
+  setTimeout(() => void retryFailedRobots().catch((e) => console.error("[planificateur] robots", e)), 2 * 60 * 1000);
   setInterval(tick, 10 * 60 * 1000);
   console.log("[planificateur] actif : synchro horaire + contrôle quotidien");
+}
+
+async function retryFailedRobots() {
+  const { syncIntegration } = await import("@/lib/connectors");
+  const failed = await prisma.integration.findMany({ where: { provider: { in: ["GTAPRO", "AUTOCERFA"] }, status: { in: ["ERROR", "PENDING"] } } });
+  for (const i of failed) {
+    console.log(`[planificateur] nouvel essai du robot ${i.provider} (${i.companyId})`);
+    await syncIntegration(i.id, { force: true }).catch(() => undefined);
+  }
 }
