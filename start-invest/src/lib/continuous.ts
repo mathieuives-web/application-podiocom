@@ -24,7 +24,7 @@ export async function jobs(): Promise<Job[]> {
         slug: comptable.slug,
         everyHours: 3,
         companyId: c.id,
-        task: `Travail comptable en continu pour ${c.name} (société="${c.name}"). 1) resultats_societe : opérations non classées, part des « Autres dépenses / Autres entrées ». 2) lister_transactions sur les plus gros montants en « Autres » et dis pour chacune la bonne catégorie et pourquoi (fournisseur reconnu, véhicule, loyer...). 3) Repère toute anomalie (doublon, montant inhabituel, abonnement nouveau, frais bancaires). N'invente rien ; cite les opérations. Mets à jour ta mémoire.`,
+        task: `Travail comptable en continu pour ${c.name} (société="${c.name}"). 0) Lis les bilans (lire_bilans) et les documents archivés : ils disent à quoi correspondent les dépenses et les rentrées (emprunts et leur échéance, loyers, assurances, achats de stock, salaires) ; compare chaque poste du bilan avec ce que montre la banque. 1) resultats_societe : opérations non classées, part des « Autres dépenses / Autres entrées ». 2) lister_transactions sur les plus gros montants en « Autres » et dis pour chacune la bonne catégorie et pourquoi (fournisseur reconnu, véhicule, loyer...). 3) Repère toute anomalie (doublon, montant inhabituel, abonnement nouveau, frais bancaires). N'invente rien ; cite les opérations. Mets à jour ta mémoire.`,
       });
     const daf = agents.find((a) => a.slug.startsWith("daf-") && a.structure === c.name);
     if (daf)

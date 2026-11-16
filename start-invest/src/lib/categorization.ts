@@ -82,22 +82,45 @@ const GENERIC = /^((COMPTE|CPT|COURANT|PRINCIPAL|PRO|PROFESSIONNEL|EPARGNE|LIVRE
 /** Noms et IBAN des comptes du groupe, par société, pour reconnaître les virements entre sociétés du groupe. */
 async function groupMarkers() {
   const [companies, accounts] = await Promise.all([
-    prisma.company.findMany({ select: { id: true, name: true } }),
+    prisma.company.findMany({ select: { id: true, name: true, activity: true } }),
     prisma.bankAccount.findMany({ select: { companyId: true, name: true, iban: true } }),
   ]);
   const names = [...companies.map((c) => ({ companyId: c.id, n: upperPlain(c.name) })), ...accounts.map((a) => ({ companyId: a.companyId, n: upperPlain(a.name) }))].filter(
     (x) => x.n.length >= 6 && !GENERIC.test(x.n)
   );
-  const ibans = accounts.map((a) => (a.iban ?? "").replace(/\s/g, "").toUpperCase()).filter((i) => i.length > 10);
-  return { names, ibans: [...new Set(ibans)] };
+  const ibans = accounts.map((a) => ({ companyId: a.companyId, iban: (a.iban ?? "").replace(/\s/g, "").toUpperCase() })).filter((i) => i.iban.length > 10);
+  // Sociétés immobilières du groupe : les virements que les autres sociétés leur font sont des LOYERS, pas des virements internes.
+  const landlords = new Set(companies.filter((c) => /\bsci\b|immobili|foncier|patrimoine/i.test(`${c.name} ${c.activity ?? ""}`)).map((c) => c.id));
+  return { names, ibans, landlords };
+}
+
+/** Société du groupe à l'autre bout d'un virement (null si ce n'est pas un virement du groupe). */
+function groupCounterpart(label: string, companyId: string, markers: Awaited<ReturnType<typeof groupMarkers>>): string | null {
+  const L = label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9 ]+/g, " ");
+  if (!/\bVIR|VIREMENT|TRANSFERT\b/.test(L)) return null;
+  const compact = L.replace(/\s/g, "");
+  const byIban = markers.ibans.find((i) => compact.includes(i.iban));
+  if (byIban) return byIban.companyId;
+  // Le nom de SA PROPRE société figure souvent dans le libellé d'un paiement client : seul le nom d'une AUTRE société du groupe compte.
+  return markers.names.find((m) => m.companyId !== companyId && L.includes(m.n))?.companyId ?? null;
+}
+
+/**
+ * Catégorie d'un virement entre comptes du groupe : virement entre comptes de la MÊME société = interne ;
+ * vers / depuis la SCI = loyer (charge pour l'occupant, recette pour la SCI) ; autre société du groupe = interne.
+ */
+function groupFlowCategory(label: string, companyId: string, amount: number, markers: Awaited<ReturnType<typeof groupMarkers>>): string | null {
+  const other = groupCounterpart(label, companyId, markers);
+  if (!other) return null;
+  if (other !== companyId) {
+    if (markers.landlords.has(companyId) && amount > 0) return "Loyers perçus";
+    if (markers.landlords.has(other) && amount < 0) return "Loyer";
+  }
+  return INTERNAL;
 }
 
 function isInternal(label: string, companyId: string, markers: Awaited<ReturnType<typeof groupMarkers>>) {
-  const L = label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9 ]+/g, " ");
-  if (!/\bVIR|VIREMENT|TRANSFERT\b/.test(L)) return false;
-  if (markers.ibans.some((i) => L.replace(/\s/g, "").includes(i))) return true;
-  // Le nom de SA PROPRE société figure souvent dans le libellé d'un paiement client : seul le nom d'une AUTRE société du groupe compte.
-  return markers.names.some((m) => m.companyId !== companyId && L.includes(m.n));
+  return groupCounterpart(label, companyId, markers) !== null;
 }
 
 // Anciennes catégories (avant le classement comptable) -> nouvelles.
@@ -132,7 +155,8 @@ export async function applyRules(companyId?: string) {
   let changed = 0;
   for (const t of txs) {
     let cat: string | null = null;
-    if (isInternal(t.label, t.companyId, markers)) cat = INTERNAL;
+    const groupCat = groupFlowCategory(t.label, t.companyId, t.amount, markers);
+    if (groupCat) cat = groupCat;
     else {
       const key = labelKey(t.label);
       const candidates = key ? byKey.get(key) ?? [] : []; // libellé sans mot (que des chiffres) : aucune règle ne s'applique
@@ -145,7 +169,7 @@ export async function applyRules(companyId?: string) {
       else if (t.category && LEGACY[t.category]) cat = LEGACY[t.category];
     }
     // Une catégorie de sortie ne s'applique pas à une entrée (et inversement) : on garde le sens de l'argent.
-    if (cat && cat !== INTERNAL) {
+    if (cat && cat !== INTERNAL && !groupCat) {
       const isIn = (CATEGORIES_IN as readonly string[]).includes(cat);
       if (isIn !== t.amount > 0) cat = null;
     }
@@ -333,6 +357,17 @@ export async function reclassifyCompany(companyId: string) {
     groupMarkers(),
   ]);
   const manualKeys = new Set(manual.map((r) => r.key));
+  // Les BILANS de la société disent quels postes existent vraiment (emprunts, loyers, assurances, achats de stock...) :
+  // l'IA s'en sert pour reconnaître à quoi correspond chaque libellé de banque.
+  const [statements, bilanDocs] = await Promise.all([
+    prisma.financialStatement.findMany({ where: { companyId }, orderBy: { year: "desc" }, take: 3 }),
+    prisma.document.findMany({ where: { companyId, type: "BILAN", status: "DONE" }, orderBy: { year: "desc" }, take: 3, select: { year: true, summary: true } }),
+  ]);
+  const fmt = (n: number | null) => (n === null ? "?" : `${Math.round(n).toLocaleString("fr-FR")} €`);
+  const bilans = [
+    ...statements.map((b) => `Bilan ${b.year} : CA ${fmt(b.revenue)}, salaires ${fmt(b.payroll)}, EBE ${fmt(b.ebitda)}, résultat net ${fmt(b.netIncome)}, emprunts ${fmt(b.debt)}, stock ${fmt(b.stock)}, trésorerie ${fmt(b.cash)}${b.notes ? ` — ${b.notes.slice(0, 600)}` : ""}`),
+    ...bilanDocs.filter((d) => d.summary).map((d) => `Analyse du bilan ${d.year ?? ""} : ${d.summary!.slice(0, 1500)}`),
+  ].join("\n");
   const groups = new Map<string, { key: string; examples: string[]; count: number; total: number; inCount: number; escrow: boolean }>();
   for (const t of txs) {
     if (isInternal(t.label, companyId, markers)) continue;
@@ -362,7 +397,7 @@ export async function reclassifyCompany(companyId: string) {
       output_config: { format: betaZodOutputFormat(Classification) },
       system: `Tu es l'expert-comptable de ${company.name} (${company.activity ?? "activité non précisée"}). Tu classes les libellés de SES opérations bancaires.
 ${METIER[company.name] ?? ""}
-Catégories d'ENTRÉES autorisées : ${CATEGORIES_IN.join(" ; ")}.
+${bilans ? `Ce que disent les BILANS de la société (utilise-les pour reconnaître les postes : un prélèvement mensuel d'une banque quand le bilan montre un emprunt = Remboursement d'emprunt ; des virements réguliers de locataires quand le bilan montre des loyers = Loyers perçus, etc.) :\n${bilans}\n` : ""}Catégories d'ENTRÉES autorisées : ${CATEGORIES_IN.join(" ; ")}.
 Catégories de SORTIES autorisées : ${CATEGORIES_OUT.join(" ; ")}.
 Une clé « entrées » reçoit une catégorie d'entrée, « sorties » une catégorie de sortie (« mixte » : selon le sens du total). Ne devine pas un fournisseur inconnu : « Autres dépenses » / « Autres entrées ». Réponds pour CHAQUE clé, recopiée à l'identique.`,
       messages: [{ role: "user", content: `Classe ces ${batch.length} libellés (clé | exemples | nombre | total | sens) :\n${lines}` }],

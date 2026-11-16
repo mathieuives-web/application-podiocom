@@ -36,6 +36,8 @@ async function tick() {
     } else if (Date.now() - lastSync > 55 * 60 * 1000) {
       await syncAll();
       lastSync = Date.now();
+      // Règles connues (sans IA, donc sans coût) : loyers internes au groupe, rapprochement Auto Cerfa, corrections manuelles.
+      await import("@/lib/categorization").then((m) => m.applyRules()).catch((e) => console.error("[classement]", (e as Error).message));
       // Opérations jamais classées (nouvelles ou restées en attente) : l'IA les classe à chaque passage horaire.
       const pending = await prisma.bankTransaction.count({ where: { category: null, account: { excluded: false } } });
       if (pending > 0 && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
@@ -61,6 +63,7 @@ export function startScheduler() {
   setTimeout(tick, 60 * 1000);
   // Au démarrage (nouvelle version en ligne) : les robots en échec réessaient tout de suite, sans attendre leur créneau.
   setTimeout(() => void retryFailedRobots().catch((e) => console.error("[planificateur] robots", e)), 2 * 60 * 1000);
+  setTimeout(() => void import("@/lib/categorization").then((m) => m.applyRules()).then((n) => console.log(`[classement] règles appliquées au démarrage : ${n} opération(s) reclassée(s)`)).catch(() => undefined), 45 * 1000);
   setTimeout(() => void knownOverdrafts().catch((e) => console.error("[planificateur] découverts", e)), 20 * 1000);
   // Remise à plat demandée par le fondateur (une seule fois par version de la consigne).
   setTimeout(() => void oneShotRedo().catch((e) => console.error("[planificateur] remise à plat", e)), 4 * 60 * 1000);
