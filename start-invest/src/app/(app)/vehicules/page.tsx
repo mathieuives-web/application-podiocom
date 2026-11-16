@@ -18,7 +18,7 @@ export default async function VehiculesPage({ searchParams }: { searchParams: Pr
   const companies = await prisma.company.findMany({ where: { active: true }, orderBy: { name: "asc" }, include: { _count: { select: { vehicles: true } } } });
   const company = companies.find((c) => c.id === societe) ?? companies.find((c) => c._count.vehicles > 0) ?? companies.find((c) => /fabrique automobile/i.test(c.name));
   if (!company) return <p className="card">Aucune société.</p>;
-  const [summary, vehicles, employees] = await Promise.all([
+  const [summary, vehicles, employees, robot] = await Promise.all([
     vehicleSummary(company.id, 12),
     prisma.vehicle.findMany({
       where: { companyId: company.id, ...(vue === "stock" ? { status: "STOCK" } : { status: "VENDU" }) },
@@ -27,7 +27,21 @@ export default async function VehiculesPage({ searchParams }: { searchParams: Pr
       take: 500,
     }),
     prisma.employee.findMany({ where: { companyId: company.id, active: true }, orderBy: { firstName: "asc" } }),
+    prisma.integration.findFirst({ where: { companyId: company.id, provider: "AUTOCERFA" } }),
   ]);
+  const all = await prisma.vehicle.findMany({ where: { companyId: company.id }, select: { mode: true, status: true, purchasePrice: true, entryDate: true, salePrice: true, saleDate: true } });
+  const warnings = (() => {
+    try {
+      return ((JSON.parse(robot?.meta ?? "{}") as { avertissements?: string[] }).avertissements ?? []).slice(0, 4);
+    } catch {
+      return [];
+    }
+  })();
+  const missing = [
+    all.filter((v) => v.mode === "ACHAT" && !v.purchasePrice).length && `${all.filter((v) => v.mode === "ACHAT" && !v.purchasePrice).length} véhicule(s) sans prix d'achat`,
+    all.filter((v) => !v.entryDate).length && `${all.filter((v) => !v.entryDate).length} sans date d'entrée`,
+    !all.some((v) => v.status === "VENDU") && "aucune vente importée",
+  ].filter(Boolean) as string[];
   const st = summary.stock;
   const ve = summary.ventes;
   const tab = (key: string, label: string) => (
@@ -52,6 +66,14 @@ export default async function VehiculesPage({ searchParams }: { searchParams: Pr
           <button className="btn-secondary">Voir</button>
         </form>
       </div>
+
+      {(robot || missing.length > 0) && (
+        <p className={`card text-sm ${missing.length || robot?.status === "ERROR" ? "bg-amber-50 border-amber-200 text-amber-900" : "bg-emerald-50 border-emerald-200 text-emerald-900"}`}>
+          {robot ? <>Robot Auto Cerfa : {robot.lastSyncAt ? `dernière lecture le ${robot.lastSyncAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : "jamais lu avec succès"}. </> : <>Auto Cerfa n&apos;est pas connecté (<Link href="/connexions" className="underline">Connexions</Link>). </>}
+          {missing.length > 0 && <>Données incomplètes : {missing.join(", ")}. Le robot va chercher le livre de police (dates et prix d&apos;achat et de vente) à sa prochaine lecture. </>}
+          {warnings.length > 0 && <span className="block text-xs mt-1">Dernière lecture : {warnings.join(" · ")}</span>}
+        </p>
+      )}
 
       <section className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3">
         <Kpi label="En stock" value={String(st.total)} sub={`${st.achats} achat(s) · ${st.depotsVente} dépôt(s)-vente`} />

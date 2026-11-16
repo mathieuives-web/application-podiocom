@@ -228,11 +228,13 @@ ${reports.join("\n\n")}`.slice(0, 150000),
 export async function redoCompany(companyId: string, userId?: string | null) {
   const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
   console.log(`[remise à plat] ${company.name} : début`);
-  const { reclassifyCompany } = await import("@/lib/categorization");
-  const cls = await reclassifyCompany(companyId).catch((e) => ({ erreur: (e as Error).message }));
+  // D'abord les logiciels (Auto Cerfa : livre de police avec prix et dates), pour que le classement puisse rapprocher
+  // chaque achat et chaque vente de véhicule de la banque.
   const { syncIntegration } = await import("@/lib/connectors");
   const robots = await prisma.integration.findMany({ where: { companyId, provider: { in: ["AUTOCERFA", "GTAPRO"] } } });
   for (const r of robots) await syncIntegration(r.id, { force: true }).catch((e) => console.log(`[remise à plat] ${r.provider} : ${(e as Error).message}`));
+  const { reclassifyCompany } = await import("@/lib/categorization");
+  const cls = await reclassifyCompany(companyId).catch((e) => ({ erreur: (e as Error).message }));
   const { relinkStaff } = await import("@/lib/vehicles");
   await relinkStaff(companyId).catch(() => undefined);
   await prisma.appSetting.upsert({

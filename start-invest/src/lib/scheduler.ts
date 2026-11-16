@@ -64,7 +64,10 @@ export function startScheduler() {
   setTimeout(() => void knownOverdrafts().catch((e) => console.error("[planificateur] découverts", e)), 20 * 1000);
   // Remise à plat demandée par le fondateur (une seule fois par version de la consigne).
   setTimeout(() => void oneShotRedo().catch((e) => console.error("[planificateur] remise à plat", e)), 4 * 60 * 1000);
-  setInterval(tick, 10 * 60 * 1000);
+  // Surveillance toutes les 5 minutes (sans IA) : agents bloqués, contrôle du jour, connexions, données.
+  setInterval(() => void import("@/lib/watchdog").then((m) => m.runWatchdog()).catch((e) => console.error("[surveillance]", e)), 5 * 60 * 1000);
+  setTimeout(() => void import("@/lib/watchdog").then((m) => m.runWatchdog()).catch(() => undefined), 90 * 1000);
+  setInterval(tick, 5 * 60 * 1000);
   console.log("[planificateur] actif : synchro horaire + contrôle quotidien");
 }
 
@@ -92,7 +95,7 @@ async function oneShotRedo() {
     const companies = await prisma.company.findMany({ where: { active: true, transactions: { some: {} } } });
     companies.sort((a, b) => (a.name === "La Fabrique Automobile" ? -1 : b.name === "La Fabrique Automobile" ? 1 : 0));
     for (const c of companies) {
-      const key = `reclassement:${c.id}:v3`;
+      const key = `reclassement:${c.id}:v4`;
       if (await prisma.appSetting.findUnique({ where: { key } })) continue;
       console.log(`[remise à plat] ${c.name} : reclassement complet`);
       try {

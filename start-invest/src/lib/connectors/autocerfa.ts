@@ -42,8 +42,9 @@ async function runRobot(integration: { id: string; companyId: string }, creds: A
     password: creds.password ?? "",
     storageState: creds.storageState,
     goals: [
-      { key: "stock", description: "Télécharger l'export Excel COMPLET du stock de véhicules (page Stock / Mon stock, bouton « Export Excel »). Il faut d'abord se connecter à l'espace professionnel si ce n'est pas fait (lien Connexion / Mon compte / Espace pro)." },
-      { key: "ventes", description: "Télécharger l'export Excel des véhicules VENDUS (page Mes ventes, historique des ventes, livre de police ou export comptable du mois), avec date et prix de vente et si possible le vendeur." },
+      { key: "livre_police", description: "Télécharger l'export Excel (ou CSV) du LIVRE DE POLICE sur la période la plus longue possible (au moins depuis le 1er janvier de l'année dernière) : c'est le registre de chaque véhicule entré et sorti, avec date et prix d'achat, vendeur d'origine, date et prix de vente, acheteur. Menu Livre de police / Registre / Comptabilité. Il faut d'abord se connecter à l'espace professionnel si ce n'est pas fait (lien Connexion / Mon compte / Espace pro). Ne rien modifier." },
+      { key: "ventes", description: "Télécharger l'export Excel des véhicules VENDUS ou l'EXPORT COMPTABLE des factures de vente, sur la période la plus longue possible (historique des ventes, factures, export comptable), avec date et prix de vente et si possible le vendeur." },
+      { key: "stock", description: "Télécharger l'export Excel COMPLET du stock de véhicules (page Stock / Mon stock / Parc, bouton « Export Excel »), avec si possible prix d'achat, frais, date d'entrée et prix affiché." },
     ],
   });
   if (storageState) {

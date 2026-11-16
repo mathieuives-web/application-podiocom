@@ -3,6 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { isAdmin, requireUser } from "@/lib/session";
 import { eur, financeSummary } from "@/lib/finance";
+import { lastWatchdog } from "@/lib/watchdog";
 import { commissionStatement, previousMonth } from "@/lib/team";
 import { runControlNow, runDevilsAdvocateNow } from "../finances/actions";
 
@@ -32,6 +33,7 @@ export default async function AujourdhuiPage() {
     prisma.company.findFirst({ where: { name: "Auto Rac Ives" }, include: { employees: true } }),
   ]);
   const t = fin.total;
+  const watch = await lastWatchdog();
   const tight = [
     ...fin.companies.filter((c) => c.overdraftLimit > 0 && c.available < 0).map((c) => `${c.name} : découvert autorisé DÉPASSÉ de ${eur(-c.available)}`),
     ...fin.companies.flatMap((c) => c.financing.filter((f) => (f.tauxUtilisation ?? 0) >= 80 && (f.tauxUtilisation ?? 0) <= 100).map((f) => `${c.name} : découvert utilisé à ${f.tauxUtilisation} % (reste ${eur(f.decouvertAutorise - f.decouvertUtilise)})`)),
@@ -72,6 +74,15 @@ export default async function AujourdhuiPage() {
             {t.unknown.length > 0 && <span className="block text-amber-700">sans {t.unknown.join(", ")} : résultat à calculer (voir ci-dessous)</span>}
           </p>
         </div>
+      </section>
+
+      <section className={`rounded-xl border p-3 text-sm ${!watch ? "bg-slate-50" : watch.problemes.length ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"}`}>
+        <p className="font-medium">
+          Surveillance des agents (toutes les 5 min) :{" "}
+          {watch ? `${watch.problemes.length ? `${watch.problemes.length} point(s) à suivre` : "tout tourne ✅"} · vérifié à ${new Date(watch.at).toLocaleTimeString("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" })}` : "première vérification dans quelques minutes"}
+        </p>
+        {watch && watch.problemes.length > 0 && <ul className="mt-1 list-disc pl-5 text-xs space-y-0.5">{watch.problemes.slice(0, 8).map((p) => <li key={p}>{p}</li>)}</ul>}
+        {watch && watch.actions.length > 0 && <p className="mt-1 text-xs text-slate-600">Réparé automatiquement : {watch.actions.join(" · ")}</p>}
       </section>
 
       <section className="space-y-2">

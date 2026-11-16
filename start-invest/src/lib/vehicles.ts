@@ -78,7 +78,7 @@ async function detectMapping(rows: unknown[][], fileName: string): Promise<Mappi
         content: `Voici le début d'un export Excel du logiciel de gestion de véhicules d'occasion Auto Cerfa (fichier « ${fileName} »).
 Indique la ligne d'en-têtes, puis pour CHAQUE colonne utile le champ correspondant parmi :
 ${fields}
-Plusieurs colonnes de frais -> toutes en « costs ». Ne mets une colonne dans un champ que si tu en es sûr ; sinon « ignore ».
+Livre de police : date d'entrée / d'acquisition = entryDate, prix d'achat / d'acquisition = purchasePrice, date de sortie / de cession = saleDate, prix de cession / de vente = salePrice, nom de l'acquéreur = customer. Plusieurs colonnes de frais -> toutes en « costs ». Ne mets une colonne dans un champ que si tu en es sûr ; sinon « ignore ».
 
 ${sample}`,
       },
@@ -217,7 +217,11 @@ export async function importVehicleSheet(companyId: string, rows: unknown[][], f
     if (!r.some((c) => String(c ?? "").trim())) continue;
     const v = rowToVehicle(r, m);
     if (!v.ref) continue;
-    const existing = await prisma.vehicle.findUnique({ where: { companyId_ref: { companyId, ref: v.ref } } });
+    // Même véhicule venu d'un autre export (livre de police, ventes, stock) : on le retrouve par immatriculation ou VIN.
+    const existing =
+      (await prisma.vehicle.findUnique({ where: { companyId_ref: { companyId, ref: v.ref } } })) ??
+      (v.plate ? await prisma.vehicle.findFirst({ where: { companyId, plate: v.plate } }) : null) ??
+      (v.vin ? await prisma.vehicle.findFirst({ where: { companyId, vin: v.vin } }) : null);
     const locked = new Set((existing?.manualFields ?? "").split(",").filter(Boolean));
     const buyerId = await matchEmployee(companyId, v.buyerName, employees);
     const sellerId = await matchEmployee(companyId, v.sellerName, employees);
@@ -228,6 +232,7 @@ export async function importVehicleSheet(companyId: string, rows: unknown[][], f
     for (const [k, val] of Object.entries(data)) {
       if (locked.has(k) || ((val === null || val === undefined || val === "" || val === false || val === 0) && existing)) delete data[k];
     }
+    if (existing && existing.ref !== v.ref) delete data.ref; // retrouvé par immatriculation / VIN : on garde sa référence
     if (existing && existing.status === "VENDU" && data.status === "STOCK") delete data.status; // l'export du stock ne « dévend » pas un véhicule
     if (existing) {
       await prisma.vehicle.update({ where: { id: existing.id }, data });
