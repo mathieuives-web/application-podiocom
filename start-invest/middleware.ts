@@ -5,6 +5,6 @@ export default NextAuth(authConfig).auth;
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/whatsapp|confidentialite|conditions|api/cron|api/health|_next/static|_next/image|logo.svg|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp)$).*)",
+    "/((?!api/auth|api/whatsapp|confidentialite|conditions|api/cron|api/health|_next/static|_next/image|logo.svg|sw.js|offline.html|manifest.webmanifest|icons/|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp)$).*)",
   ],
 };
