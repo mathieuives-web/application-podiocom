@@ -33,8 +33,14 @@ export async function companyResults(companyId: string, year = new Date().getFul
   const sum = (list: { category: string; total: number }[], cats: string[]) => list.filter((x) => cats.includes(x.category)).reduce((s, x) => s + x.total, 0);
   const finIn = sum(cash.entrees, FINANCEMENT_IN);
   const finOut = sum(cash.sorties, FINANCEMENT_OUT);
+  // Négoce : un véhicule acheté pour le stock n'est pas une perte. On retire les achats de l'année et on compte à la place
+  // le prix d'achat des véhicules VENDUS dans l'année (Auto Cerfa). Sans ventes connues, on garde la banque telle quelle.
+  const stockBuys = sum(cash.sorties, ["Achats de véhicules"]);
+  const soldYear = vehicles.filter((v) => v.status === "VENDU" && v.mode === "ACHAT" && v.saleDate && v.saleDate >= yStart && v.saleDate < yEnd);
+  const costOfSold = soldYear.reduce((s, v) => s + (v.purchasePrice ?? 0), 0);
+  const stockAdjusted = stockBuys > 0 && soldYear.length > 0;
   const activiteEntrees = cash.totalEntrees.total - finIn;
-  const activiteSorties = cash.totalSorties.total - finOut;
+  const activiteSorties = cash.totalSorties.total - finOut - (stockAdjusted ? stockBuys - costOfSold : 0);
   const months = cash.monthsWithData.length;
   const banque = {
     comptes: accounts.length,
@@ -51,6 +57,7 @@ export async function companyResults(companyId: string, year = new Date().getFul
     principalesDepenses: cash.sorties.slice(0, 8).map((x) => ({ categorie: x.category, montant: x.total })),
     principalesEntrees: cash.entrees.slice(0, 6).map((x) => ({ categorie: x.category, montant: x.total })),
     operationsNonClassees: uncategorized,
+    stock: { achatsVehiculesAnnee: r2(stockBuys), prixAchatDesVendus: r2(costOfSold), corrige: stockAdjusted },
     loyersPercus: r2(sum(cash.entrees, ["Loyers perçus"])),
     loyersPayes: r2(sum(cash.sorties, ["Loyer"])),
   };

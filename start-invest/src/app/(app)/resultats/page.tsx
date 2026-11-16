@@ -45,8 +45,13 @@ function Company({ r, admin }: { r: CompanyResults; admin: boolean }) {
           tone={b.resultatActivite >= 0 ? "good" : "bad"}
         />
         <Kpi label="Entrées d'argent" value={eur(b.entrees)} />
-        <Kpi label="Sorties d'argent" value={eur(b.sorties)} />
-        <Kpi label="Solde des comptes aujourd'hui" value={eur(b.soldeActuel)} sub={b.decouvertAutorise ? `découvert autorisé ${eur(b.decouvertAutorise)}` : undefined} tone={b.soldeActuel >= 0 ? undefined : "bad"} />
+        <Kpi label="Sorties d'argent" value={eur(b.sorties)} sub={b.stock.corrige ? `dont ${eur(b.stock.achatsVehiculesAnnee)} de véhicules achetés ; ${eur(b.stock.prixAchatDesVendus)} pour ceux vendus` : undefined} />
+        <Kpi
+          label={b.decouvertAutorise ? "Disponible (avec découvert)" : "Solde des comptes aujourd'hui"}
+          value={eur(b.soldeActuel + b.decouvertAutorise)}
+          sub={b.decouvertAutorise ? `solde ${eur(b.soldeActuel)} · découvert autorisé ${eur(b.decouvertAutorise)}` : undefined}
+          tone={b.soldeActuel + b.decouvertAutorise >= 0 ? undefined : "bad"}
+        />
       </div>
 
       {r.vehicules && (
@@ -138,6 +143,7 @@ export default async function ResultatsPage({ searchParams }: { searchParams: Pr
         <p className="text-sm text-slate-500">
           Ce que chaque société gagne réellement, calculé sur vos relevés bancaires, Auto Cerfa, GTA Pro et vos bilans. Mis à jour à chaque synchronisation.
           « Gagné » = argent entré − argent sorti, sans compter les prêts reçus, les remboursements d&apos;emprunt, vos prélèvements ni les virements entre vos sociétés.
+          Pour le négoce auto, une voiture achetée n&apos;est comptée qu&apos;une fois vendue (à son prix d&apos;achat Auto Cerfa). Un solde négatif dans la limite du découvert autorisé est normal.
         </p>
         <p className="mt-2 text-sm">Groupe, {year} : <strong className={total >= 0 ? "text-emerald-700" : "text-red-700"}>{eur(total)}</strong></p>
       </div>

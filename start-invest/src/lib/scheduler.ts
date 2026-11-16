@@ -42,6 +42,7 @@ export function startScheduler() {
   setTimeout(tick, 60 * 1000);
   // Au démarrage (nouvelle version en ligne) : les robots en échec réessaient tout de suite, sans attendre leur créneau.
   setTimeout(() => void retryFailedRobots().catch((e) => console.error("[planificateur] robots", e)), 2 * 60 * 1000);
+  setTimeout(() => void knownOverdrafts().catch((e) => console.error("[planificateur] découverts", e)), 20 * 1000);
   // Remise à plat demandée par le fondateur (une seule fois par version de la consigne).
   setTimeout(() => void oneShotRedo().catch((e) => console.error("[planificateur] remise à plat", e)), 4 * 60 * 1000);
   setInterval(tick, 10 * 60 * 1000);
@@ -66,5 +67,26 @@ async function oneShotRedo() {
     await prisma.appSetting.create({ data: { key: r.key, value: new Date().toISOString() } });
     const c = await prisma.company.findFirst({ where: { name: r.company } });
     if (c) await redoCompany(c.id);
+  }
+}
+
+// Découverts autorisés communiqués par le fondateur (la banque ne les transmet pas) : posés une fois, jamais écrasés.
+const OVERDRAFTS = [{ company: "La Fabrique Automobile", accountEnd: "4086", limit: 250000, note: "Découvert autorisé garanti par Auxiga (prêteur sur gage, stock de véhicules)" }];
+
+async function knownOverdrafts() {
+  for (const o of OVERDRAFTS) {
+    const c = await prisma.company.findFirst({ where: { name: o.company } });
+    if (!c) continue;
+    const accounts = await prisma.bankAccount.findMany({ where: { companyId: c.id } });
+    const digits = (x: string | null) => (x ?? "").replace(/\D/g, "");
+    const match = accounts.filter((a) => digits(a.iban).endsWith(o.accountEnd) || a.name.includes(o.accountEnd) || (a.externalId ?? "").includes(o.accountEnd));
+    if (match.length !== 1) {
+      console.log(`[découverts] ${o.company} : compte …${o.accountEnd} ${match.length ? "ambigu" : "introuvable"} (${accounts.map((a) => a.name).join(", ")})`);
+      continue;
+    }
+    const a = match[0];
+    if (a.overdraftLimit > 0) continue;
+    await prisma.bankAccount.update({ where: { id: a.id }, data: { overdraftLimit: o.limit, financingNote: a.financingNote ?? o.note } });
+    console.log(`[découverts] ${o.company} : découvert de ${o.limit} € posé sur ${a.name}`);
   }
 }

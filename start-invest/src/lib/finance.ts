@@ -37,6 +37,8 @@ export function invoiceStatus(inv: { amount: number; paidAmount: number; dueDate
   return "A_PAYER" as const;
 }
 
+const FINANCING = ["Apports / prêts reçus", "Remboursement d'emprunt", "Rémunération / prélèvements du dirigeant"];
+
 export type CompanySummary = Awaited<ReturnType<typeof financeSummary>>["companies"][number];
 
 /** Vue consolidée : trésorerie, flux 30 jours, factures, par société + total groupe. */
@@ -53,14 +55,35 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
       bankAccounts: { where: { excluded: false } },
       invoices: true,
       transactions: { where: { date: { gte: from }, NOT: { category: INTERNAL }, account: { kind: "COURANT", excluded: false } } },
+      vehicles: { where: { status: "VENDU", mode: "ACHAT", saleDate: { gte: from } }, select: { saleDate: true, purchasePrice: true } },
     },
     orderBy: { name: "asc" },
   });
 
+  // Résultat = entrées − sorties, MAIS : un véhicule acheté pour le stock n'est pas une perte (on retire l'achat et on
+  // compte à la place le prix d'achat des véhicules VENDUS sur la période), et les prêts reçus, remboursements
+  // d'emprunt et prélèvements du dirigeant ne sont ni un gain ni une charge.
+  const result = (txs: { amount: number; category: string | null }[], sold: { purchasePrice: number | null }[]) => {
+    const cash = txs.reduce((s, t) => s + t.amount, 0);
+    const stockBuys = -txs.filter((t) => t.category === "Achats de véhicules").reduce((s, t) => s + t.amount, 0);
+    const financing = txs.filter((t) => FINANCING.includes(t.category ?? "")).reduce((s, t) => s + t.amount, 0);
+    const costOfSold = sold.reduce((s, v) => s + (v.purchasePrice ?? 0), 0);
+    const adjusted = stockBuys > 0 && sold.length > 0;
+    return {
+      cashNet: cash,
+      stockBuys,
+      costOfSold,
+      soldCount: sold.length,
+      soldWithoutPrice: sold.filter((v) => v.purchasePrice === null).length,
+      net: cash - financing + (adjusted ? stockBuys - costOfSold : 0),
+      adjusted,
+    };
+  };
   const rows = companies.map((c) => {
     const month = c.transactions.filter((t) => t.date >= monthStart);
-    const monthNet = month.reduce((s, t) => s + t.amount, 0);
+    const monthNet = result(month, c.vehicles.filter((v) => v.saleDate! >= monthStart)).net;
     c.transactions = c.transactions.filter((t) => t.date >= since);
+    const res = result(c.transactions, c.vehicles.filter((v) => v.saleDate! >= since));
     const current = c.bankAccounts.filter((a) => a.kind === "COURANT");
     const cash = current.reduce((s, a) => s + a.balance, 0);
     // Découvert autorisé : marge de manœuvre réelle = solde + découvert ; utilisé = part négative du solde.
@@ -105,9 +128,15 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
       loans,
       inflow,
       outflow,
-      net: inflow - outflow,
+      net: res.net,
+      cashNet: res.cashNet,
+      stockBuys: res.stockBuys,
+      costOfSold: res.costOfSold,
+      soldCount: res.soldCount,
+      soldWithoutPrice: res.soldWithoutPrice,
+      stockAdjusted: res.adjusted,
       monthNet,
-      profitable: inflow - outflow >= 0,
+      profitable: res.net >= 0,
       hasData: current.length > 0,
       byCategory: Object.entries(byCategory)
         .sort((a, b) => b[1] - a[1])
@@ -132,11 +161,13 @@ export async function financeSummary(opts: { companyId?: string; days?: number }
       receivables: s.receivables + r.receivables,
       receivablesLate: s.receivablesLate + r.receivablesLate,
       payables: s.payables + r.payables,
+      net: s.net + r.net,
+      stockBuys: s.stockBuys + r.stockBuys,
     }),
-    { escrow: 0, loans: 0, cash: 0, overdraftLimit: 0, available: 0, inflow: 0, outflow: 0, receivables: 0, receivablesLate: 0, payables: 0 }
+    { escrow: 0, loans: 0, cash: 0, overdraftLimit: 0, available: 0, inflow: 0, outflow: 0, receivables: 0, receivablesLate: 0, payables: 0, net: 0, stockBuys: 0 }
   );
 
-  return { periodDays: days, companies: rows, total: { ...total, net: total.inflow - total.outflow } };
+  return { periodDays: days, companies: rows, total };
 }
 
 /** Flux mensuels (entrées / sorties) sur N mois, toutes sociétés ou une seule. */

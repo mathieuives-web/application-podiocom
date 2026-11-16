@@ -32,7 +32,10 @@ export default async function AujourdhuiPage() {
     prisma.company.findFirst({ where: { name: "Auto Rac Ives" }, include: { employees: true } }),
   ]);
   const t = fin.total;
-  const tight = fin.companies.flatMap((c) => c.financing.filter((f) => (f.tauxUtilisation ?? 0) >= 80).map((f) => `${c.name} : découvert utilisé à ${f.tauxUtilisation} %`));
+  const tight = [
+    ...fin.companies.filter((c) => c.overdraftLimit > 0 && c.available < 0).map((c) => `${c.name} : découvert autorisé DÉPASSÉ de ${eur(-c.available)}`),
+    ...fin.companies.flatMap((c) => c.financing.filter((f) => (f.tauxUtilisation ?? 0) >= 80 && (f.tauxUtilisation ?? 0) <= 100).map((f) => `${c.name} : découvert utilisé à ${f.tauxUtilisation} % (reste ${eur(f.decouvertAutorise - f.decouvertUtilise)})`)),
+  ];
   const day = Number(new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", day: "numeric" }).format(new Date()));
   const commissions = admin && day <= 10 ? (await commissionStatement(previousMonth())).reduce((s, e) => s + e.aVerser, 0) : 0;
   const urgent = terrain.filter((x) => x.urgent).length;
@@ -47,14 +50,26 @@ export default async function AujourdhuiPage() {
 
       <section className="grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-stone-950 text-white p-4">
-          <p className="text-xs text-stone-400">Trésorerie du groupe</p>
-          <p className="text-2xl font-bold">{eur(t.cash)}</p>
-          {t.overdraftLimit > 0 && <p className="text-xs text-stone-400">disponible avec découverts : {eur(t.available)}</p>}
+          {t.overdraftLimit > 0 ? (
+            <>
+              <p className="text-xs text-stone-400">Disponible (avec découverts autorisés)</p>
+              <p className={`text-2xl font-bold ${t.available < 0 ? "text-red-400" : ""}`}>{eur(t.available)}</p>
+              <p className="text-xs text-stone-400">solde des comptes {eur(t.cash)} · découverts autorisés {eur(t.overdraftLimit)}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-stone-400">Trésorerie du groupe</p>
+              <p className="text-2xl font-bold">{eur(t.cash)}</p>
+            </>
+          )}
         </div>
         <div className="rounded-xl bg-white border p-4">
-          <p className="text-xs text-slate-500">Résultat 30 jours</p>
+          <p className="text-xs text-slate-500">Gagné sur 30 jours</p>
           <p className={`text-2xl font-bold ${t.net >= 0 ? "text-emerald-700" : "text-red-700"}`}>{eur(t.net)}</p>
-          <p className="text-xs text-slate-500">entrées {eur(t.inflow)}</p>
+          <p className="text-xs text-slate-500">
+            entrées {eur(t.inflow)}
+            {t.stockBuys > 0 ? ` · ${eur(t.stockBuys)} de véhicules achetés pour le stock (pas une perte : comptés à la vente)` : ""}
+          </p>
         </div>
       </section>
 
@@ -102,9 +117,13 @@ export default async function AujourdhuiPage() {
         <ul className="text-sm divide-y">
           {fin.companies.map((c) => (
             <li key={c.id} className="py-1.5 flex justify-between gap-2">
-              <span>{c.name}</span>
+              <span>
+                {c.name}
+                {c.overdraftLimit > 0 && <span className="block text-xs text-slate-500">découvert autorisé {eur(c.overdraftLimit)} · reste {eur(c.available)}</span>}
+              </span>
               <span className="text-right">
-                <b>{eur(c.cash)}</b> <span className={`text-xs ${c.net >= 0 ? "text-emerald-700" : "text-red-700"}`}>{c.net >= 0 ? "+" : ""}{eur(c.net)}</span>
+                <b className={c.available < 0 ? "text-red-700" : ""}>{eur(c.cash)}</b> <span className={`text-xs ${c.net >= 0 ? "text-emerald-700" : "text-red-700"}`}>{c.net >= 0 ? "+" : ""}{eur(c.net)}</span>
+                {c.stockBuys > 0 && <span className="block text-xs text-slate-500">{c.soldCount} vendu(s), {eur(c.stockBuys)} achetés en stock{c.soldWithoutPrice ? ` · ${c.soldWithoutPrice} sans prix d'achat dans Auto Cerfa` : ""}</span>}
               </span>
             </li>
           ))}
