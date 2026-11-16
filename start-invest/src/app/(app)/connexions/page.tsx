@@ -8,6 +8,7 @@ import { microsoftConfigured, microsoftRedirectUri } from "@/lib/connectors/micr
 import { whatsappVerifyToken } from "@/lib/connectors/whatsapp";
 import { ensureKnownPresence } from "@/lib/projects";
 import BankConnect from "./BankConnect";
+import ConnectChecklist from "./ConnectChecklist";
 import { addIntegration, syncNow, removeIntegration, startDirect, setPresence } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -40,13 +41,16 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
       <div>
         <h1 className="text-xl font-bold">Connexions</h1>
         <p className="text-sm text-slate-500">
-          Branchez les banques et logiciels de chaque société : les données arrivent seules dans Finances et sont lues par les agents IA.
-          Les identifiants sont chiffrés en base et utilisés en lecture seule.
+          Tout est prêt ci-dessous : pour chaque ligne, cliquez et entrez vos identifiants. Les données arrivent seules et sont lues par
+          les agents IA. Les identifiants sont chiffrés et ne sont jamais montrés aux agents.
         </p>
       </div>
 
       {msg && <p className="card text-sm bg-sky-50 border-sky-200 text-sky-900">{msg}</p>}
 
+      <ConnectChecklist />
+
+      <h2 className="text-lg font-bold pt-4 border-t">Détail et réglages avancés</h2>
       <section className="card overflow-x-auto">
         <h2 className="font-semibold mb-3">Outils connectés</h2>
         <table className="table-base">

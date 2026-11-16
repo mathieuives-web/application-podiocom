@@ -4,7 +4,6 @@ import { auth, signOut } from "@/auth";
 import { isAdmin } from "@/lib/session";
 
 const LINKS = [
-  { href: "/tout-connecter", label: "★ Tout connecter", admin: true },
   { href: "/mise-en-route", label: "Mise en route" },
   { href: "/agents", label: "Board d'agents IA" },
   { href: "/finances", label: "Finances" },
@@ -15,7 +14,7 @@ const LINKS = [
   { href: "/terrain", label: "Terrain (WhatsApp)" },
   { href: "/projets", label: "Projets", admin: true },
   { href: "/archives", label: "Archives" },
-  { href: "/connexions", label: "Connexions", admin: true },
+  { href: "/connexions", label: "★ Connexions", admin: true },
   { href: "/acces", label: "Accès" },
 ];
 

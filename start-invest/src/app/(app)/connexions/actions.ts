@@ -14,7 +14,7 @@ import { GTAPRO_DEFAULT_URL } from "@/lib/connectors/gtapro";
 
 export async function addIntegration(formData: FormData) {
   const me = await requireAdmin();
-  const backTo = formData.get("back") === "/tout-connecter" ? "/tout-connecter" : "/connexions";
+  const backTo = "/connexions";
   const provider = PROVIDERS.find((p) => p.id === formData.get("provider") && p.available);
   if (!provider) throw new Error("Connecteur indisponible.");
   const creds: Record<string, string> = {};
@@ -61,7 +61,6 @@ export async function addIntegration(formData: FormData) {
     msg = `${provider.name} enregistré mais la synchronisation a échoué : ${(e as Error).message}`;
   }
   revalidatePath("/connexions");
-  revalidatePath("/tout-connecter");
   revalidatePath("/finances");
   redirect(`${backTo}?msg=${encodeURIComponent(msg)}`);
 }
@@ -118,14 +117,13 @@ export async function finishDirect(sid: string) {
   await audit(me, "connexion_directe_enregistree", integrationId);
   after(() => syncIntegration(integrationId, { force: true }).then(() => undefined).catch(() => undefined));
   revalidatePath("/connexions");
-  revalidatePath("/tout-connecter");
-  redirect(`/tout-connecter?msg=${encodeURIComponent("Session enregistrée : c'est connecté. Le robot fait sa première lecture maintenant (2 à 5 minutes), puis travaille tout seul chaque jour.")}`);
+  redirect(`/connexions?msg=${encodeURIComponent("Session enregistrée : c'est connecté. Le robot fait sa première lecture maintenant (2 à 5 minutes), puis travaille tout seul chaque jour.")}`);
 }
 
 export async function cancelDirect(sid: string) {
   const me = await requireAdmin();
   await cancelLive(sid, me.id).catch(() => undefined);
-  redirect("/tout-connecter");
+  redirect("/connexions");
 }
 
 const PRESENCE = ["website", "instagram", "facebook", "tiktok", "googleBusiness", "linkedin"] as const;
