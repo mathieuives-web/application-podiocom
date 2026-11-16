@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { trackAiSpend } from "@/lib/ai-cost";
 import { z } from "zod";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { prisma } from "@/lib/prisma";
@@ -116,6 +117,7 @@ ${btns.map((e) => `${e.i} : ${e.text}${e.href ? ` [${e.href}]` : ""}`).join("\n"
     ],
   });
   const msg = await stream.finalMessage();
+  await trackAiSpend("robot portails", msg.model, msg.usage);
   return { a: Action.parse(JSON.parse(msg.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text").map((b) => b.text).join(""))), btns };
 }
 

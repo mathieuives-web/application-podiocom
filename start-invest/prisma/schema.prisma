@@ -213,6 +213,7 @@ model AgentRun {
   error      String?
   startedAt  DateTime  @default(now())
   finishedAt DateTime?
+  costEur    Float?
   userId     String?
 
   parentId String?
@@ -579,4 +580,16 @@ model Prospect {
   updatedAt   DateTime  @updatedAt
 
   @@unique([project, name, city])
+}
+
+// ------------------------------------------------------------------ dépense IA (budget mensuel du fondateur)
+model AiSpend {
+  id        String   @id @default(cuid())
+  day       String // AAAA-MM-JJ (heure de Paris)
+  source    String // agent (slug) ou fonction (classement, robot...)
+  model     String
+  costEur   Float
+  createdAt DateTime @default(now())
+
+  @@index([day])
 }

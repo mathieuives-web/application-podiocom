@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { trackAiSpend } from "@/lib/ai-cost";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import { mkdir, readFile, unlink, writeFile } from "fs/promises";
 import path from "path";
@@ -158,6 +159,7 @@ async function extract<T>(pdf: Buffer, schema: z.ZodType<T>, instruction: string
     ],
   });
   const msg = await stream.finalMessage();
+  await trackAiSpend("lecture de documents", msg.model, msg.usage);
   if (msg.stop_reason === "refusal") throw new Error("Le document n'a pas pu être lu par l'IA.");
   if (msg.stop_reason === "max_tokens") throw new Error("Document trop long : découpez-le (par exemple un relevé par trimestre).");
   const text = msg.content

@@ -5,6 +5,7 @@ import { isAdmin, requireUser } from "@/lib/session";
 import { eur, financeSummary } from "@/lib/finance";
 import { lastWatchdog } from "@/lib/watchdog";
 import { continuousStatus } from "@/lib/continuous";
+import { aiSpendStatus } from "@/lib/ai-cost";
 import { commissionStatement, previousMonth } from "@/lib/team";
 import { runControlNow, runDevilsAdvocateNow } from "../finances/actions";
 
@@ -34,7 +35,7 @@ export default async function AujourdhuiPage() {
     prisma.company.findFirst({ where: { name: "Auto Rac Ives" }, include: { employees: true } }),
   ]);
   const t = fin.total;
-  const [watch, cont] = await Promise.all([lastWatchdog(), continuousStatus()]);
+  const [watch, cont, spend] = await Promise.all([lastWatchdog(), continuousStatus(), aiSpendStatus()]);
   const tight = [
     ...fin.companies.filter((c) => c.overdraftLimit > 0 && c.available < 0).map((c) => `${c.name} : découvert autorisé DÉPASSÉ de ${eur(-c.available)}`),
     ...fin.companies.flatMap((c) => c.financing.filter((f) => (f.tauxUtilisation ?? 0) >= 80 && (f.tauxUtilisation ?? 0) <= 100).map((f) => `${c.name} : découvert utilisé à ${f.tauxUtilisation} % (reste ${eur(f.decouvertAutorise - f.decouvertUtilise)})`)),
@@ -85,6 +86,9 @@ export default async function AujourdhuiPage() {
         <p className="text-xs mt-0.5">
           Agents en continu, 24 h/24 : {cont.running ? <>en ce moment <strong>{cont.running.agent}</strong></> : "entre deux travaux"} · {cont.today} travail(aux) aujourd&apos;hui (plafond {cont.max})
           {cont.last?.finishedAt ? ` · dernier fini à ${cont.last.finishedAt.toLocaleTimeString("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" })} (${cont.last.agent})` : ""}
+        </p>
+        <p className="text-xs mt-0.5">
+          Dépense IA : <strong>{spend.today.toFixed(2)} €</strong> aujourd&apos;hui (budget {spend.dailyBudget.toFixed(2)} €) · <strong>{spend.month.toFixed(0)} €</strong> ce mois sur {spend.budget} €
         </p>
         {watch && watch.problemes.length > 0 && <ul className="mt-1 list-disc pl-5 text-xs space-y-0.5">{watch.problemes.slice(0, 8).map((p) => <li key={p}>{p}</li>)}</ul>}
         {watch && watch.actions.length > 0 && <p className="mt-1 text-xs text-slate-600">Réparé automatiquement : {watch.actions.join(" · ")}</p>}

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { trackAiSpend } from "@/lib/ai-cost";
 import { createHash } from "crypto";
 import { z } from "zod";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
@@ -85,6 +86,7 @@ ${sample}`,
     ],
   });
   const msg = await stream.finalMessage();
+  await trackAiSpend("import Auto Cerfa", msg.model, msg.usage);
   const text = msg.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text").map((b) => b.text).join("");
   const mapping = MappingSchema.parse(JSON.parse(text));
   await prisma.appSetting.upsert({ where: { key }, update: { value: JSON.stringify(mapping) }, create: { key, value: JSON.stringify(mapping) } });

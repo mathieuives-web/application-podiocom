@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { trackAiSpend } from "@/lib/ai-cost";
 import { createHash, createHmac, timingSafeEqual } from "crypto";
 import { z } from "zod";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
@@ -111,6 +112,7 @@ Classe-le et extrais les informations utiles pour la comptabilité et la gestion
     messages: [{ role: "user", content }],
   });
   const msg = await stream.finalMessage();
+  await trackAiSpend("WhatsApp", msg.model, msg.usage);
   return Reading.parse(JSON.parse(msg.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text").map((b) => b.text).join("")));
 }
 

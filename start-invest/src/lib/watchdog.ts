@@ -38,6 +38,14 @@ export async function runWatchdog(): Promise<Surveillance> {
   if (credit || (lastCreditError && okSince === 0 && now - lastCreditError.startedAt.getTime() < 24 * 3600 * 1000))
     problemes.unshift("🔴 CRÉDIT IA ÉPUISÉ : tous les agents sont à l'arrêt. Rechargez sur console.anthropic.com → Plans & Billing. Le travail reprend tout seul dans les 15 minutes qui suivent.");
 
+  // 2 quater. Budget IA
+  {
+    const { aiSpendStatus } = await import("@/lib/ai-cost");
+    const st = await aiSpendStatus();
+    if (st.month >= st.budget) problemes.unshift(`Budget IA du mois atteint (${st.month.toFixed(0)} € sur ${st.budget} €) : travail automatique en pause jusqu'au 1er. Pour l'augmenter : variable AI_MONTHLY_BUDGET_EUR dans Railway.`);
+    else if (st.today >= st.dailyBudget) problemes.push(`Budget IA du jour atteint (${st.today.toFixed(2)} € sur ${st.dailyBudget.toFixed(2)} €) : la rotation reprend demain.`);
+  }
+
   // 2 bis. Agents en continu : le travail ne doit jamais s'arrêter (sauf plafond journalier atteint).
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
     const { continuousStatus } = await import("@/lib/continuous");

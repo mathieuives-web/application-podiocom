@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { trackAiSpend } from "@/lib/ai-cost";
 import { z } from "zod";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { prisma } from "@/lib/prisma";
@@ -238,6 +239,7 @@ Si vraiment impossible à déterminer : « Autres dépenses » ou « Autres entr
       messages: [{ role: "user", content: `Classe ces ${batch.length} libellés (clé | exemple | nombre | total | sens | sociétés) :\n${lines}` }],
     });
     const msg = await stream.finalMessage();
+    await trackAiSpend("classement comptable", msg.model, msg.usage);
     if (msg.stop_reason === "refusal") continue;
     const text = msg.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text").map((b) => b.text).join("");
     let parsed: z.infer<typeof Classification>;
@@ -403,6 +405,7 @@ Une clé « entrées » reçoit une catégorie d'entrée, « sorties » une cat�
       messages: [{ role: "user", content: `Classe ces ${batch.length} libellés (clé | exemples | nombre | total | sens) :\n${lines}` }],
     });
     const msg = await stream.finalMessage();
+    await trackAiSpend("classement comptable", msg.model, msg.usage);
     if (msg.stop_reason === "refusal") continue;
     const text = msg.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text").map((b) => b.text).join("");
     let parsed: z.infer<typeof Classification>;

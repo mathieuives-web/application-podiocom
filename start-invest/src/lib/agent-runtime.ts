@@ -8,6 +8,7 @@ import { commissionStatement, currentMonth, employeeFile } from "@/lib/team";
 import { employeeAgentSlug } from "@/lib/agents";
 import { EXTRA_TOOL_NAMES, extraTools, runExtraTool } from "@/lib/agent-tools-extra";
 import { shineMcpServersFor, SHINE_READ_TOOLS } from "@/lib/connectors";
+import { trackAiSpend } from "@/lib/ai-cost";
 
 // Moteur d'exécution du board : chaque agent tourne sur l'API Claude avec son fichier
 // .claude/agents/<slug>.md comme prompt système, des outils en LECTURE SEULE sur les
@@ -431,6 +432,8 @@ export async function executeAgent(opts: {
   runId?: string;
   kind?: string;
   companyId?: string | null;
+  /** Modèle imposé (économie : « haiku » pour la routine), transmis aux agents consultés. */
+  model?: "opus" | "sonnet" | "haiku";
 }): Promise<{ runId: string; output: string }> {
   const all = await loadAgents();
   const agent = all.find((a) => a.slug === opts.slug);
@@ -451,6 +454,7 @@ export async function executeAgent(opts: {
           },
         });
 
+  let spent = 0;
   try {
     const reachable = depth < MAX_DEPTH - 1 ? reachableFrom(agent, all) : [];
     // Confidentialité : l'agent d'un salarié ne voit que sa propre fiche (pas les ventes, salaires ou banques des autres).
@@ -505,26 +509,32 @@ export async function executeAgent(opts: {
       });
     }
     if (agent.tools.some((t) => /websearch|webfetch/i.test(t))) {
-      tools.push({ type: "web_search_20260209", name: "web_search", max_uses: agent.slug.startsWith("projet-") ? 25 : 5 });
+      tools.push({ type: "web_search_20260209", name: "web_search", max_uses: agent.slug.startsWith("projet-") ? 15 : 5 });
     }
 
     const messages: Anthropic.Beta.BetaMessageParam[] = [
       { role: "user", content: `Date du jour : ${new Date().toLocaleDateString("fr-FR")}.\n\n${opts.task}` },
     ];
     let output = "";
+    const model = MODELS[opts.model ?? agent.model] ?? MODELS.opus;
+    const light = model === MODELS.haiku;
 
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       const response = await anthropic().beta.messages.create({
-        model: MODELS[agent.model] ?? MODELS.opus,
+        model,
         max_tokens: 16000,
         system: systemPrompt(agent, all, memory) + shineNote,
         tools,
         messages,
-        output_config: { effort: depth === 0 ? "high" : "medium" },
-        betas: ["server-side-fallback-2026-07-01", ...(shine.length ? ["mcp-client-2025-11-20" as const] : [])],
-        fallbacks: "default",
+        // Cache : instructions et outils identiques d'un tour à l'autre, relus à 5 % du prix.
+        cache_control: { type: "ephemeral" },
+        output_config: { effort: light ? "medium" : depth === 0 ? "high" : "medium" },
+        // Repli serveur en cas de refus : disponible sur Opus / Sonnet, pas sur Haiku.
+        betas: [...(light ? [] : ["server-side-fallback-2026-07-01" as const]), ...(shine.length ? ["mcp-client-2025-11-20" as const] : [])],
+        ...(light ? {} : { fallbacks: "default" as const }),
         ...(shine.length ? { mcp_servers: shine.map((x) => ({ type: "url" as const, name: x.name, url: x.url, authorization_token: x.token })) } : {}),
       });
+      spent += await trackAiSpend(agent.slug, response.model ?? model, response.usage);
 
       const text = response.content
         .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
@@ -563,6 +573,7 @@ export async function executeAgent(opts: {
                 userId: opts.userId,
                 parentRunId: run.id,
                 depth: depth + 1,
+                model: opts.model,
               });
               return { type: "tool_result", tool_use_id: tu.id, content: sub.output || "(pas de réponse)" };
             }
@@ -578,14 +589,14 @@ export async function executeAgent(opts: {
 
     await prisma.agentRun.update({
       where: { id: run.id },
-      data: { status: "DONE", output: output || "(aucune réponse)", finishedAt: new Date() },
+      data: { status: "DONE", output: output || "(aucune réponse)", finishedAt: new Date(), costEur: spent },
     });
-    console.log(`[agent] ${agent.slug} terminé (${opts.kind ?? "MANUAL"})`);
+    console.log(`[agent] ${agent.slug} terminé (${opts.kind ?? "MANUAL"}, ${model.replace("claude-", "")}, ${spent.toFixed(3)} €)`);
     return { runId: run.id, output };
   } catch (e) {
     const message = e instanceof Anthropic.APIError ? `Erreur API Claude (${e.status}) : ${e.message}` : (e as Error).message;
     console.log(`[agent] ${agent.slug} ÉCHEC : ${message.slice(0, 400)}`);
-    await prisma.agentRun.update({ where: { id: run.id }, data: { status: "ERROR", error: message, finishedAt: new Date() } });
+    await prisma.agentRun.update({ where: { id: run.id }, data: { status: "ERROR", error: message, finishedAt: new Date(), costEur: spent } });
     if (depth > 0) return { runId: run.id, output: `L'agent ${agent.title} n'a pas pu répondre : ${message}` };
     throw e;
   }

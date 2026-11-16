@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { trackAiSpend } from "@/lib/ai-cost";
 import { createHash } from "crypto";
 import { z } from "zod";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
@@ -53,6 +54,7 @@ async function extract(text: string) {
     messages: [{ role: "user", content: `Voici le texte des écrans du logiciel d'atelier GTA Pro (listes de factures, de devis et d'ordres de réparation). Extrais TOUTES les lignes, sans en inventer. Montants en euros TTC. Pour une facture, « reste_du » = 0 si elle est réglée.\n\n${text.slice(0, 180000)}` }],
   });
   const msg = await stream.finalMessage();
+  await trackAiSpend("robot GTA Pro", msg.model, msg.usage);
   return Lists.parse(JSON.parse(msg.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text").map((b) => b.text).join("")));
 }
 

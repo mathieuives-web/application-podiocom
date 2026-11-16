@@ -40,7 +40,8 @@ async function tick() {
       await import("@/lib/categorization").then((m) => m.applyRules()).catch((e) => console.error("[classement]", (e as Error).message));
       // Opérations jamais classées (nouvelles ou restées en attente) : l'IA les classe à chaque passage horaire.
       const pending = await prisma.bankTransaction.count({ where: { category: null, account: { excluded: false } } });
-      if (pending > 0 && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
+      const { canSpendAutomatic } = await import("@/lib/ai-cost");
+      if (pending > 0 && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) && (await canSpendAutomatic(1))) {
         const { aiCategorize } = await import("@/lib/categorization");
         await aiCategorize().catch((e) => console.error("[classement]", (e as Error).message));
       }
@@ -97,6 +98,8 @@ async function oneShotRedo() {
     const { reclassifyCompany } = await import("@/lib/categorization");
     const { agentsConfigured, executeAgent } = await import("@/lib/agent-runtime");
     if (!agentsConfigured()) return;
+    const { canSpendAutomatic } = await import("@/lib/ai-cost");
+    if (!(await canSpendAutomatic(1))) return; // budget IA du jour atteint : on reprendra demain
     // 1. Reclassement complet de chaque société avec son métier (La Fabrique Automobile : + Auto Cerfa + analyse complète).
     const companies = await prisma.company.findMany({ where: { active: true, transactions: { some: {} } } });
     companies.sort((a, b) => (a.name === "La Fabrique Automobile" ? -1 : b.name === "La Fabrique Automobile" ? 1 : 0));

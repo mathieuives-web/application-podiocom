@@ -43,7 +43,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
       for (const c of withStaff) {
         const boss = agents.find((a) => a.slug.startsWith("directeur-ventes-") && a.structure === c.name) ?? agents.find((a) => a.slug.startsWith("dg-") && a.structure === c.name);
         if (!boss) continue;
-        await executeAgent({
+        await executeAgent({ model: "haiku",
           slug: boss.slug,
           kind: "COMMISSIONS",
           companyId: c.id,
@@ -54,8 +54,12 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
     const rem = await runReminders();
     log.push(`Relances : ${rem.created} créée(s), ${rem.sent} envoyée(s) par e-mail`);
 
+    const { canSpendAutomatic, aiSpendStatus } = await import("@/lib/ai-cost");
     if (!agentsConfigured()) {
       log.push("Agents IA non activés (ANTHROPIC_API_KEY manquante) : pas de rapport des DAF.");
+    } else if (!(await canSpendAutomatic(1))) {
+      const st = await aiSpendStatus();
+      log.push(`Budget IA atteint (${st.month.toFixed(0)} € ce mois sur ${st.budget} €) : rapports des agents reportés.`);
     } else {
       const agents = await loadAgents();
       const companies = await prisma.company.findMany({ where: { active: true } });
@@ -65,7 +69,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
         const daf = agents.find((a) => a.slug.startsWith("daf-") && a.structure === c.name);
         if (!daf) continue;
         try {
-          const r = await executeAgent({
+          const r = await executeAgent({ model: "haiku",
             slug: daf.slug,
             kind: "DAILY",
             companyId: c.id,
@@ -83,14 +87,14 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
       for (const c of companies.filter((x) => connected.some((i) => i.companyId === x.id))) {
         // Courrier atelier (Auto Rac'Ives) en plus du secrétariat quand la société en a un.
         for (const courrier of agents.filter((a) => a.slug.startsWith("courrier-") && a.structure === c.name)) {
-          await executeAgent({ slug: courrier.slug, kind: "DAILY", companyId: c.id, task: `Courrier du ${date} pour ${c.name} : suis exactement ta procédure du matin, puis fais ton rapport.` })
+          await executeAgent({ model: "haiku", slug: courrier.slug, kind: "DAILY", companyId: c.id, task: `Courrier du ${date} pour ${c.name} : suis exactement ta procédure du matin, puis fais ton rapport.` })
             .then((r) => reports.push(`### ${courrier.title} (${c.name})\n${r.output}`))
             .catch((e) => log.push(`  ⚠ ${courrier.title} ${c.name} : ${(e as Error).message}`));
         }
         const sec = agents.find((a) => a.slug.startsWith("secretariat-") && a.structure === c.name);
         if (!sec) continue;
         try {
-          const r = await executeAgent({ slug: sec.slug, kind: "DAILY", companyId: c.id, task: `Tri du ${date} pour ${c.name} : suis exactement ta procédure du matin, puis fais ton rapport.` });
+          const r = await executeAgent({ model: "haiku", slug: sec.slug, kind: "DAILY", companyId: c.id, task: `Tri du ${date} pour ${c.name} : suis exactement ta procédure du matin, puis fais ton rapport.` });
           reports.push(`### ${sec.title} (${c.name})\n${r.output}`);
         } catch (e) {
           log.push(`  ⚠ Secrétariat ${c.name} : ${(e as Error).message}`);
@@ -103,12 +107,12 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
         const { projectAgentSlug } = await import("@/lib/agents");
         const projects = await prisma.project.findMany({ where: { active: true } });
         for (const p of projects) {
-          await executeAgent({ slug: projectAgentSlug(p), kind: "DAILY", task: projectMission(p, date) })
+          await executeAgent({ model: "haiku", slug: projectAgentSlug(p), kind: "DAILY", task: projectMission(p, date) })
             .then(() => log.push(`Projet ${p.name} : fait`))
             .catch((e) => log.push(`  ⚠ Projet ${p.name} : ${(e as Error).message}`));
         }
         if (new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday") {
-          await executeAgent({ slug: "directeur-projets", kind: "WEEKLY", task: `Point des projets du lundi ${date} : suis exactement ta procédure du lundi.` })
+          await executeAgent({ model: "haiku", slug: "directeur-projets", kind: "WEEKLY", task: `Point des projets du lundi ${date} : suis exactement ta procédure du lundi.` })
             .then(() => log.push("Point des projets : fait"))
             .catch((e) => log.push(`  ⚠ Point des projets : ${(e as Error).message}`));
         }
@@ -117,7 +121,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
       for (const c of companies) {
         const chef = agents.find((a) => a.slug.startsWith("planning-atelier-") && a.structure === c.name);
         if (!chef) continue;
-        await executeAgent({ slug: chef.slug, kind: "DAILY", companyId: c.id, task: `Matin du ${date} à l'atelier ${c.name} : suis exactement ta procédure du matin${new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday" ? ", plus le bilan du lundi" : ""}.` })
+        await executeAgent({ model: "haiku", slug: chef.slug, kind: "DAILY", companyId: c.id, task: `Matin du ${date} à l'atelier ${c.name} : suis exactement ta procédure du matin${new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday" ? ", plus le bilan du lundi" : ""}.` })
           .then((r) => reports.push(`### ${chef.title} (${c.name})\n${r.output}`))
           .catch((e) => log.push(`  ⚠ ${chef.title} ${c.name} : ${(e as Error).message}`));
       }
@@ -129,12 +133,13 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
         const task = monday
           ? `Revue hebdomadaire du ${date} pour ${c.name} : audit complet du site et de la présence en ligne, plan d'action classé par impact, et calendrier des publications de la semaine prêtes à copier-coller.`
           : `Routine du ${date} pour ${c.name} (objectif : être premier sur Google et Google Maps pour chaque recherche locale) : 1) vérifie avec web_search la position sur les 5 recherches clés de ta mémoire et note tout changement ; 2) nouveaux avis Google à répondre (propose la réponse) ; 3) UNE action de référencement du jour, prête à appliquer (texte exact et où le mettre) ; 4) la publication du jour (Instagram / Facebook / TikTok) prête à copier-coller. Mets à jour ta mémoire avec les positions et ce qui est fait.`;
-        await executeAgent({ slug: web.slug, kind: monday ? "WEEKLY" : "DAILY", companyId: c.id, task })
+        await executeAgent({ model: "haiku", slug: web.slug, kind: monday ? "WEEKLY" : "DAILY", companyId: c.id, task })
           .then((r) => reports.push(`### ${web.title} (${c.name})\n${r.output}`))
           .catch((e) => log.push(`  ⚠ Site & réseaux ${c.name} : ${(e as Error).message}`));
       }
 
       if (reports.length) {
+        await prisma.appSetting.upsert({ where: { key: "continu:cfo" }, update: { value: String(Date.now()) }, create: { key: "continu:cfo", value: String(Date.now()) } });
         const cfo = await executeAgent({
           slug: "cfo",
           kind: "DAILY",
@@ -143,6 +148,7 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
         log.push("Revue du CFO : faite");
         // Contre-contrôle : l'avocat du diable vérifie tous les rapports et corrige les agents qui se trompent.
         if (agents.some((a) => a.slug === "avocat-du-diable")) {
+          await prisma.appSetting.upsert({ where: { key: "continu:avocat" }, update: { value: String(Date.now()) }, create: { key: "continu:avocat", value: String(Date.now()) } });
           await executeAgent({
             slug: "avocat-du-diable",
             kind: "DAILY",

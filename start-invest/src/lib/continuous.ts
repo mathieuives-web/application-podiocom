@@ -6,7 +6,7 @@ import { agentsConfigured, executeAgent } from "@/lib/agent-runtime";
 // l'agent dont la tâche est la plus en retard prend le relais (un seul à la fois, pour garder des chiffres cohérents).
 // Plafond de sécurité : AGENTS_MAX_RUNS_PER_DAY (défaut 200 travaux par jour) pour éviter une facture IA incontrôlée.
 
-type Job = { key: string; slug: string; everyHours: number; companyId?: string; task: string; daytime?: boolean };
+type Job = { key: string; slug: string; everyHours: number; companyId?: string; task: string; daytime?: boolean; model?: "opus" | "haiku" };
 
 let busy = false;
 
@@ -45,15 +45,16 @@ export async function jobs(): Promise<Job[]> {
   const { projectMission } = await import("@/lib/daily-control");
   const date = new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full" });
   for (const p of await prisma.project.findMany({ where: { active: true } }))
-    list.push({ key: `projet:${p.id}`, slug: projectAgentSlug(p), everyHours: p.website ? 2 : 8, task: projectMission(p, date) });
-  if (has("cfo")) list.push({ key: "cfo", slug: "cfo", everyHours: 6, task: "Synthèse du groupe : resultats_societe sans société, tableau société / gagné / disponible / indicateur clé, puis ce qui a changé et les 3 décisions à prendre par le fondateur. Règle de fiabilité : pas de conclusion sur des chiffres pas encore classés." });
+    list.push({ key: `projet:${p.id}`, slug: projectAgentSlug(p), everyHours: p.website ? 12 : 24, task: projectMission(p, date) });
+  if (has("cfo")) list.push({ key: "cfo", slug: "cfo", everyHours: 24, model: "opus", task: "Synthèse du groupe : resultats_societe sans société, tableau société / gagné / disponible / indicateur clé, puis ce qui a changé et les 3 décisions à prendre par le fondateur. Règle de fiabilité : pas de conclusion sur des chiffres pas encore classés." });
   if (has("avocat-du-diable")) {
     const recent = await prisma.agentRun.findMany({ where: { status: "DONE", parentId: null, agent: { not: "avocat-du-diable" }, startedAt: { gte: new Date(Date.now() - 6 * 3600 * 1000) } }, orderBy: { startedAt: "desc" }, take: 12 });
     if (recent.length)
       list.push({
         key: "avocat",
         slug: "avocat-du-diable",
-        everyHours: 4,
+        everyHours: 24,
+        model: "opus",
         task: `Contre-contrôle en continu. Vérifie avec tes outils chaque chiffre et chaque conclusion des rapports ci-dessous ; corrige les agents qui se trompent (corriger_agent).\n\n${recent.map((r) => `### ${r.agent} — ${r.startedAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}\n${(r.output ?? "").slice(0, 6000)}`).join("\n\n")}`.slice(0, 120000),
       });
   }
@@ -72,6 +73,10 @@ export async function runNextAgentJob() {
     // Crédit IA épuisé : inutile d'enchaîner des échecs. On reteste toutes les 15 minutes pour repartir dès la recharge.
     const credit = await prisma.appSetting.findUnique({ where: { key: "ia-credit-epuise" } });
     if (credit && Date.now() - Number(credit.value) < 15 * 60 * 1000) return null;
+    // Budget IA du fondateur (AI_MONTHLY_BUDGET_EUR) : la rotation s'arrête à 85 % du budget du jour
+    // (le reste est gardé pour le contrôle du matin, les robots et ses propres demandes) et reprend le lendemain.
+    const { canSpendAutomatic } = await import("@/lib/ai-cost");
+    if (!(await canSpendAutomatic(0.85))) return null;
     const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", hour: "numeric", hourCycle: "h23" }).formatToParts(new Date()).find((x) => x.type === "hour")?.value ?? 12);
     const list = (await jobs()).filter((j) => !j.daytime || (hour >= 7 && hour < 20));
     const stamps = new Map((await prisma.appSetting.findMany({ where: { key: { startsWith: "continu:" } } })).map((s) => [s.key, Number(s.value) || 0]));
@@ -84,7 +89,7 @@ export async function runNextAgentJob() {
     await prisma.appSetting.upsert({ where: { key }, update: { value: String(Date.now()) }, create: { key, value: String(Date.now()) } });
     console.log(`[agents en continu] ${due.j.slug}`);
     try {
-      await executeAgent({ slug: due.j.slug, kind: "CONTINU", companyId: due.j.companyId ?? null, task: due.j.task });
+      await executeAgent({ slug: due.j.slug, kind: "CONTINU", companyId: due.j.companyId ?? null, task: due.j.task, model: due.j.model ?? "haiku" });
       await prisma.appSetting.deleteMany({ where: { key: "ia-credit-epuise" } });
     } catch (e) {
       const msg = (e as Error).message;
