@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/prisma";
 
+const VAS_DESCRIPTION =
+  "Sécurise les ventes de voitures d'occasion. Garages / marchands VO : à la remise des clés, sur téléphone, les papiers en photo (bon de commande, facture, CT, annonce, carte grise lue automatiquement), 34 photos guidées datées et scellées, signature de l'acheteur vérifiée par e-mail, dossier PDF verrouillé à vie. Quand un courrier d'assurance / mise en demeure arrive : litige ouvert depuis la livraison, avis technique sous 48 h ouvrées, un seul interlocuteur. Particuliers : dossier de vente signé, 29 € TTC. Offres : Sécurité 65 € HT/mois (12 mois, livraisons illimitées ; 10 garages fondateurs à 49 € HT/mois à vie), Sérénité 180 € HT/mois (6 litiges/an, dossier technique, revue des annonces), dossier technique complet 350 € HT à l'unité, présence à l'expertise sur devis.";
+const VAS_NOTES =
+  "Positionnement légal à respecter strictement : assistance technique et information juridique générale uniquement — pas de consultation juridique ni de rédaction d'actes (réservées aux avocats), pas de titre d'« expert en automobile ». Maquette du site : https://claude.ai/artifact/YQSTAxoi5H8CRxzQrT4uT1 . Premiers clients naturels : La Fabrique Automobile et Auto Rac Ives (garages du groupe).";
+
 // Projets connus au démarrage (le fondateur les complète et en ajoute dans la page Projets).
 const DEFAULTS = [
   {
@@ -14,13 +19,12 @@ const DEFAULTS = [
   },
   {
     name: "Vente Auto Sécurité",
-    description:
-      "Service pour garages VO et particuliers : PV de livraison signé par l'acheteur sur téléphone, pièces de la vente verrouillées, aide quand un litige arrive (courrier d'assurance). Particuliers : dossier de vente signé, 29 € TTC.",
-    goal: "Premiers garages abonnés et ventes particuliers réguliers ; site venteautosecurite.fr qui convertit et se place sur Google.",
+    description: VAS_DESCRIPTION,
+    goal: "10 garages fondateurs abonnés (49 € HT/mois à vie), puis abonnements Sécurité / Sérénité réguliers et ventes « particuliers » à 29 € chaque semaine ; site venteautosecurite.fr qui convertit et se place sur Google (« PV de livraison voiture », « litige vente voiture occasion », « vice caché garage »).",
     repo: "mathieuives-web/vente-auto-securite",
     website: "https://venteautosecurite.fr/",
     status: "EN_COURS",
-    notes: "Premier client naturel : La Fabrique Automobile (et Auto Rac Ives).",
+    notes: VAS_NOTES,
   },
   {
     name: "Inspectly",
@@ -34,6 +38,14 @@ const DEFAULTS = [
 ];
 
 export async function ensureDefaultProjects() {
-  if ((await prisma.project.count()) > 0) return;
-  for (const p of DEFAULTS) await prisma.project.create({ data: p }).catch(() => undefined);
+  if ((await prisma.project.count()) === 0) {
+    for (const p of DEFAULTS) await prisma.project.create({ data: p }).catch(() => undefined);
+    return;
+  }
+  // Fiche Vente Auto Sécurité complétée (offres, prix, cadre légal) tant que le fondateur ne l'a pas réécrite.
+  const vas = await prisma.project.findUnique({ where: { name: "Vente Auto Sécurité" } });
+  if (vas && !vas.notes?.includes("Positionnement légal") && (!vas.description || vas.description.startsWith("Service pour garages VO"))) {
+    const d = DEFAULTS.find((x) => x.name === "Vente Auto Sécurité")!;
+    await prisma.project.update({ where: { id: vas.id }, data: { description: d.description, goal: d.goal, notes: [d.notes, vas.notes && !vas.notes.startsWith("Premier client naturel") ? vas.notes : null].filter(Boolean).join("\n") } });
+  }
 }
