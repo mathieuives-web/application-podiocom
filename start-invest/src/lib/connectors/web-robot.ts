@@ -32,18 +32,18 @@ const anthropic = () => (client ??= new Anthropic());
 type Page = import("playwright-core").Page;
 type Loc = import("playwright-core").Locator;
 
-async function launch() {
+export async function launch() {
   const { chromium } = await import("playwright-core");
   const executablePath = process.env.CHROMIUM_PATH || undefined;
   return chromium.launch({ headless: true, executablePath, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 }
 
-async function visible(l: Loc) {
+export async function visible(l: Loc) {
   return l.isVisible().catch(() => false);
 }
 
 /** Remplit le formulaire de connexion s'il est affiché. Renvoie true si une connexion a été tentée. */
-async function loginIfNeeded(page: Page, username: string, password: string) {
+export async function loginIfNeeded(page: Page, username: string, password: string) {
   const pwd = page.locator('input[type="password"]').first();
   if (!(await visible(pwd))) return false;
   if (!password) throw new Error("Session expirée : le site redemande une connexion. Cliquez « se connecter moi-même » dans Connexions et reconnectez-vous.");
@@ -70,7 +70,7 @@ async function loginIfNeeded(page: Page, username: string, password: string) {
   return true;
 }
 
-async function clickables(page: Page) {
+export async function clickables(page: Page) {
   return page.evaluate(() => {
     const els = Array.from(document.querySelectorAll('a, button, [role="button"], [role="menuitem"], input[type="button"], input[type="submit"], [onclick]')) as HTMLElement[];
     return els

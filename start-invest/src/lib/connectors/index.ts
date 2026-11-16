@@ -11,6 +11,7 @@ import { checkWhatsApp, whatsappVerifyToken, type WhatsAppCreds } from "./whatsa
 import { googleClient } from "./google";
 import { checkGitHub } from "./github";
 import { syncAutoCerfa, AUTOCERFA_DEFAULT_URL, type AutoCerfaCreds } from "./autocerfa";
+import { syncGtaPro, GTAPRO_DEFAULT_URL, type GtaProCreds } from "./gtapro";
 
 export const PROVIDERS: ProviderDef[] = [
   {
@@ -114,6 +115,20 @@ export const PROVIDERS: ProviderDef[] = [
     docs: "GitHub → Settings → Developer settings → Fine-grained tokens → Generate : dépôts de vos projets, permissions Contents, Issues, Pull requests, Actions et Metadata en « Read-only »",
     available: true,
   },
+  {
+    id: "GTAPRO",
+    name: "GTA Pro (atelier Auto Rac'Ives)",
+    kind: "Facturation",
+    description:
+      "Logiciel d'atelier sans API : vous vous connectez une fois dans une fenêtre en direct (ou vous enregistrez vos identifiants, chiffrés). Le robot lit ensuite plusieurs fois par jour les factures (réglées / reste dû) pour le contrôle des paiements, le rapprochement bancaire et les relances, et la liste des devis et OR. Il saisit les devis et ordres de réparation préparés par l'agent de l'atelier APRÈS votre validation. Il ne peut jamais facturer, encaisser, supprimer ni envoyer.",
+    fields: [
+      { name: "login", label: "Identifiant GTA Pro (facultatif)", optional: true },
+      { name: "password", label: "Mot de passe GTA Pro (facultatif)", secret: true, optional: true },
+      { name: "url", label: "Adresse du portail (facultatif)", placeholder: GTAPRO_DEFAULT_URL, optional: true },
+    ],
+    docs: "À choisir pour Auto Rac Ives. Laissez identifiant et mot de passe vides pour vous connecter vous-même.",
+    available: true,
+  },
 
   {
     id: "AUTRES",
@@ -152,6 +167,10 @@ export async function syncIntegration(integrationId: string, opts: { force?: boo
     } else if (integ.provider === "GOOGLE") {
       await googleClient(integ.id).then((g) => g.call("https://www.googleapis.com/oauth2/v3/userinfo"));
       result = { accounts: 0, transactions: 0, invoices: 0 };
+    } else if (integ.provider === "GTAPRO") {
+      const r = await syncGtaPro(integ, creds as unknown as GtaProCreds, opts.force);
+      if (r.skipped) return r;
+      result = r;
     } else if (integ.provider === "AUTOCERFA") {
       const r = await syncAutoCerfa(integ, creds as unknown as AutoCerfaCreds, opts.force);
       if (r.skipped) return r; // déjà passé aujourd'hui

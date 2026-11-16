@@ -459,3 +459,24 @@ model Project {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+// ------------------------------------------------------------------ saisies par le robot (ex. devis / OR dans GTA Pro)
+model RobotTask {
+  id          String    @id @default(cuid())
+  companyId   String
+  provider    String // GTAPRO
+  kind        String // DEVIS | OR
+  title       String // ex. « Devis vidange + plaquettes — Clio AB-123-CD »
+  payload     String // JSON : client, véhicule, lignes...
+  status      String    @default("BROUILLON") // BROUILLON | VALIDE | EN_COURS | FAIT | ERREUR | REFUSE
+  createdBy   String? // agent ou utilisateur
+  validatedBy String?
+  validatedAt DateTime?
+  result      String? // numéro créé / compte rendu du robot
+  error       String?
+  documentId  String? // capture d'écran finale (archivée chiffrée)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+}

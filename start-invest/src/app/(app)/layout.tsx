@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/comptabilite", label: "Comptabilité" },
   { href: "/vehicules", label: "Véhicules" },
   { href: "/equipe", label: "Équipe & commissions", admin: true },
+  { href: "/atelier", label: "Atelier (GTA Pro)", admin: true },
   { href: "/terrain", label: "Terrain (WhatsApp)" },
   { href: "/projets", label: "Projets", admin: true },
   { href: "/archives", label: "Archives" },

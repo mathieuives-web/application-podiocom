@@ -13,6 +13,8 @@ import { driveCreateFolder, driveList, driveMove, gmailOrganize, gmailRead, gmai
 
 const GROUP = ["ceo", "cfo", "cmo", "seo-geo", "contenu-reseaux", "publicite"];
 const isSecretariat = (a: AgentDef) => a.slug.startsWith("secretariat-");
+const ATELIER_WRITERS = ["clients-devis-auto-rac-ives", "dg-auto-rac-ives", "planning-atelier-auto-rac-ives", "pieces-auto-rac-ives", "secretariat-auto-rac-ives"];
+const canSeeAtelier = (a: AgentDef) => a.structure === "Auto Rac Ives" || ["ceo", "cfo", "avocat-du-diable"].includes(a.slug);
 const canSeeProjects = (a: AgentDef) => a.slug === "directeur-projets" || a.slug.startsWith("projet-") || ["ceo", "cto", "cmo", "avocat-du-diable", "moneymaker"].includes(a.slug);
 const canReadMail = (a: AgentDef) => isSecretariat(a) || a.slug.startsWith("dg-") || a.slug.startsWith("daf-") || a.slug === "ceo";
 
@@ -59,6 +61,46 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
         input_schema: { type: "object", properties: { societe, dossier: { type: "string", description: "Identifiant du dossier" }, recherche: { type: "string" }, boite: { type: "string" } }, additionalProperties: false },
       }
     );
+  }
+  if (canSeeAtelier(agent)) {
+    tools.push({
+      name: "lister_atelier",
+      description: "Atelier Auto Rac'Ives (GTA Pro) : devis et ordres de réparation en cours lus dans GTA Pro, factures impayées, et documents préparés par les agents (brouillons à valider, saisis, en erreur).",
+      input_schema: { type: "object", properties: {}, additionalProperties: false },
+    });
+  }
+  if (ATELIER_WRITERS.includes(agent.slug)) {
+    tools.push({
+      name: "preparer_document_atelier",
+      description:
+        "Prépare un DEVIS ou un ORDRE DE RÉPARATION (OR) à saisir dans GTA Pro. Il part en BROUILLON : le fondateur le vérifie et le valide dans la page Atelier, puis le robot le saisit. Donne des prix HT réalistes (barème main-d'œuvre de l'atelier, prix des pièces) et toutes les infos du client et du véhicule.",
+      input_schema: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["DEVIS", "OR"] },
+          client: { type: "object", properties: { nom: { type: "string" }, telephone: { type: "string" }, email: { type: "string" }, adresse: { type: "string" } }, required: ["nom"], additionalProperties: false },
+          vehicule: { type: "object", properties: { immatriculation: { type: "string" }, marque: { type: "string" }, modele: { type: "string" }, kilometrage: { type: "integer" }, vin: { type: "string" } }, required: ["immatriculation"], additionalProperties: false },
+          lignes: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: { type: "string", enum: ["MAIN_OEUVRE", "PIECE", "FORFAIT"] },
+                designation: { type: "string" },
+                reference: { type: "string" },
+                quantite: { type: "number", description: "Heures pour la main-d'œuvre" },
+                prix_unitaire_ht: { type: "number" },
+              },
+              required: ["type", "designation", "quantite", "prix_unitaire_ht"],
+              additionalProperties: false,
+            },
+          },
+          remarques: { type: "string" },
+        },
+        required: ["type", "client", "vehicule", "lignes"],
+        additionalProperties: false,
+      },
+    });
   }
   if (canSeeProjects(agent)) {
     tools.push(
@@ -108,7 +150,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   return tools;
 }
 
-export const EXTRA_TOOL_NAMES = new Set(["lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
+export const EXTRA_TOOL_NAMES = new Set(["lister_atelier", "preparer_document_atelier", "lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
 
 async function scopeCompany(agent: AgentDef, name?: string) {
   const all = await prisma.company.findMany({ where: { active: true } });
@@ -226,6 +268,35 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
   const soc = input.societe as string | undefined;
   const boite = input.boite as string | undefined;
   switch (name) {
+    case "lister_atelier": {
+      if (!canSeeAtelier(agent)) throw new Error("Réservé à l'atelier Auto Rac'Ives et à la direction.");
+      const c = await prisma.company.findFirst({ where: { name: "Auto Rac Ives" } });
+      if (!c) throw new Error("Société Auto Rac Ives introuvable.");
+      const { atelierSnapshot } = await import("@/lib/connectors/gtapro");
+      const [snap, tasks, unpaid] = await Promise.all([
+        atelierSnapshot(c.id),
+        prisma.robotTask.findMany({ where: { companyId: c.id }, orderBy: { createdAt: "desc" }, take: 40 }),
+        prisma.invoice.findMany({ where: { companyId: c.id, kind: "CLIENT", provider: "GTAPRO" }, orderBy: { issueDate: "desc" }, take: 300 }),
+      ]);
+      return {
+        gtaPro: snap ?? "GTA Pro pas encore lu (Connexions → GTA Pro).",
+        facturesImpayees: unpaid.filter((i) => i.amount - i.paidAmount > 0.01).map((i) => ({ numero: i.number, client: i.counterparty, date: i.issueDate.toISOString().slice(0, 10), echeance: i.dueDate?.toISOString().slice(0, 10) ?? null, reste: Math.round((i.amount - i.paidAmount) * 100) / 100 })),
+        documentsPrepares: tasks.map((t) => ({ type: t.kind, titre: t.title, statut: t.status, resultat: t.result, erreur: t.error, cree: t.createdAt.toISOString().slice(0, 10) })),
+      };
+    }
+    case "preparer_document_atelier": {
+      if (!ATELIER_WRITERS.includes(agent.slug)) throw new Error("Réservé aux agents de l'atelier.");
+      const c = await prisma.company.findFirst({ where: { name: "Auto Rac Ives" } });
+      if (!c) throw new Error("Société Auto Rac Ives introuvable.");
+      const lignes = (input.lignes as { type: string; designation: string; quantite: number; prix_unitaire_ht: number }[]) ?? [];
+      if (!lignes.length) throw new Error("Au moins une ligne.");
+      const totalHt = Math.round(lignes.reduce((t, l) => t + l.quantite * l.prix_unitaire_ht, 0) * 100) / 100;
+      const v = input.vehicule as { immatriculation: string; marque?: string; modele?: string };
+      const kind = input.type === "OR" ? "OR" : "DEVIS";
+      const title = `${kind === "OR" ? "OR" : "Devis"} ${(input.client as { nom: string }).nom} — ${[v.marque, v.modele].filter(Boolean).join(" ")} ${v.immatriculation} — ${totalHt.toFixed(2)} € HT`.slice(0, 200);
+      const t = await prisma.robotTask.create({ data: { companyId: c.id, provider: "GTAPRO", kind, title, payload: JSON.stringify({ ...input, total_ht: totalHt }), createdBy: agent.slug } });
+      return { ok: true, id: t.id, statut: "BROUILLON — à valider par le fondateur dans la page Atelier", titre: title };
+    }
     case "lister_projets": {
       if (!canSeeProjects(agent)) throw new Error("Réservé à la direction des projets.");
       const { ensureDefaultProjects } = await import("@/lib/projects");

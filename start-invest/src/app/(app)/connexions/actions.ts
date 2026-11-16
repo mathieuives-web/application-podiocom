@@ -10,6 +10,7 @@ import { PROVIDERS, syncIntegration } from "@/lib/connectors";
 import { audit } from "@/lib/audit";
 import { cancelLive, finishLive, startLive } from "@/lib/connectors/live-browser";
 import { AUTOCERFA_DEFAULT_URL } from "@/lib/connectors/autocerfa";
+import { GTAPRO_DEFAULT_URL } from "@/lib/connectors/gtapro";
 
 export async function addIntegration(formData: FormData) {
   const me = await requireAdmin();
@@ -30,16 +31,17 @@ export async function addIntegration(formData: FormData) {
     },
   });
   await audit(me, "connexion_outil_ajoutee", `${provider.name} — société ${integ.companyId}`);
-  if (provider.id === "AUTOCERFA" && !creds.password) {
+  const site = ROBOT_SITES[provider.id];
+  if (site && !creds.password) {
     // Pas de mot de passe : le fondateur se connecte lui-même dans la fenêtre en direct.
-    const sid = await startLive(integ.id, me.id, AUTOCERFA_DEFAULT_URL);
-    redirect(`/connexions/direct?sid=${sid}&nom=${encodeURIComponent("Auto Cerfa")}`);
+    const sid = await startLive(integ.id, me.id, site.url);
+    redirect(`/connexions/direct?sid=${sid}&nom=${encodeURIComponent(site.name)}`);
   }
-  if (provider.id === "AUTOCERFA") {
+  if (site) {
     // Le robot met plusieurs minutes : il travaille en arrière-plan.
     after(() => syncIntegration(integ.id, { force: true }).then(() => undefined).catch(() => undefined));
     revalidatePath("/connexions");
-    redirect(`/connexions?msg=${encodeURIComponent("Auto Cerfa enregistré. Le robot se connecte maintenant (2 à 5 minutes) : rechargez la page pour voir le résultat, puis allez dans Véhicules.")}`);
+    redirect(`/connexions?msg=${encodeURIComponent(`${site.name} enregistré. Le robot se connecte maintenant (2 à 5 minutes) : rechargez la page pour voir le résultat.`)}`);
   }
   let msg: string;
   try {
@@ -57,11 +59,11 @@ export async function syncNow(integrationId: string) {
   const me = await requireAdmin();
   await audit(me, "synchronisation_manuelle", integrationId);
   const integ = await prisma.integration.findUniqueOrThrow({ where: { id: integrationId } });
-  if (integ.provider === "AUTOCERFA") {
+  if (ROBOT_SITES[integ.provider]) {
     await prisma.integration.update({ where: { id: integrationId }, data: { status: "PENDING", lastError: null } });
     after(() => syncIntegration(integrationId, { force: true }).then(() => undefined).catch(() => undefined));
     revalidatePath("/connexions");
-    redirect(`/connexions?msg=${encodeURIComponent("Le robot Auto Cerfa travaille (2 à 5 minutes) : rechargez la page pour voir le résultat.")}`);
+    redirect(`/connexions?msg=${encodeURIComponent(`Le robot ${ROBOT_SITES[integ.provider].name} travaille (2 à 5 minutes) : rechargez la page pour voir le résultat.`)}`);
   }
   let msg: string;
   try {
@@ -83,7 +85,10 @@ export async function removeIntegration(integrationId: string) {
   revalidatePath("/connexions");
 }
 
-const ROBOT_SITES: Record<string, { name: string; url: string }> = { AUTOCERFA: { name: "Auto Cerfa", url: AUTOCERFA_DEFAULT_URL } };
+const ROBOT_SITES: Record<string, { name: string; url: string }> = {
+  AUTOCERFA: { name: "Auto Cerfa", url: AUTOCERFA_DEFAULT_URL },
+  GTAPRO: { name: "GTA Pro", url: GTAPRO_DEFAULT_URL },
+};
 
 /** Ouvre la fenêtre de connexion en direct pour un logiciel sans API. */
 export async function startDirect(integrationId: string) {

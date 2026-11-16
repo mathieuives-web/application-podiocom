@@ -66,7 +66,7 @@ export default async function ConnexionsPage({ searchParams }: { searchParams: P
                   <td className="text-xs text-slate-500">{i._count.bankAccounts} compte(s) · {i._count.invoices} facture(s)</td>
                   <td className="text-xs">{i.lastSyncAt ? fmt(i.lastSyncAt) : "—"}</td>
                   <td className="whitespace-nowrap space-x-3">
-                    {i.provider === "AUTOCERFA" && (
+                    {["AUTOCERFA", "GTAPRO"].includes(i.provider) && (
                       <form className="inline" action={async () => { "use server"; await startDirect(i.id); }}>
                         <button className="text-xs underline font-semibold text-emerald-700">se connecter moi-même</button>
                       </form>
