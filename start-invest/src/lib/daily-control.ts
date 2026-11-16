@@ -96,14 +96,22 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
           log.push(`  ⚠ Secrétariat ${c.name} : ${(e as Error).message}`);
         }
       }
-      // Chaque lundi : point des projets.
-      if (new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday") {
-        // Projets : point hebdomadaire du Directeur des projets avec chaque chef de projet.
+      // Projets : chaque jour, chaque chef de projet travaille pour le premier euro ; le lundi, point du Directeur des projets.
+      {
         const { ensureDefaultProjects } = await import("@/lib/projects");
         await ensureDefaultProjects();
-        await executeAgent({ slug: "directeur-projets", kind: "WEEKLY", task: `Point des projets du lundi ${date} : suis exactement ta procédure du lundi.` })
-          .then(() => log.push("Point des projets : fait"))
-          .catch((e) => log.push(`  ⚠ Point des projets : ${(e as Error).message}`));
+        const { projectAgentSlug } = await import("@/lib/agents");
+        const projects = await prisma.project.findMany({ where: { active: true } });
+        for (const p of projects) {
+          await executeAgent({ slug: projectAgentSlug(p), kind: "DAILY", task: projectMission(p, date) })
+            .then(() => log.push(`Projet ${p.name} : fait`))
+            .catch((e) => log.push(`  ⚠ Projet ${p.name} : ${(e as Error).message}`));
+        }
+        if (new Date().toLocaleDateString("en-US", { timeZone: "Europe/Paris", weekday: "long" }) === "Monday") {
+          await executeAgent({ slug: "directeur-projets", kind: "WEEKLY", task: `Point des projets du lundi ${date} : suis exactement ta procédure du lundi.` })
+            .then(() => log.push("Point des projets : fait"))
+            .catch((e) => log.push(`  ⚠ Point des projets : ${(e as Error).message}`));
+        }
       }
       // Chef d'atelier : planning, suivi WhatsApp et rentabilité des mécaniciens, chaque matin.
       for (const c of companies) {
@@ -234,4 +242,20 @@ export async function redoCompany(companyId: string, userId?: string | null) {
   });
   console.log(`[remise à plat] ${company.name} : classement ${JSON.stringify(cls)}, analyse complète lancée`);
   return runFullAnalysis(companyId, userId);
+}
+
+/** Mission du jour d'un chef de projet : rapprocher le projet de son premier euro, avec des actions réelles. */
+export function projectMission(p: { name: string; website: string | null; status: string }, date: string) {
+  const cibles: Record<string, string> = {
+    "Vente Auto Sécurité":
+      "garages, négociants VO, agents et petits concessionnaires automobiles, en commençant par l'Ille-et-Vilaine (Montreuil-sur-Ille, Rennes, Saint-Aubin-d'Aubigné, Betton, Saint-Malo, Fougères, Vitré), puis la Bretagne. Offre : les 10 premiers garages paient 49 € HT/mois à vie (PV de livraison avec preuves, dossier anti-litige, aide en cas de réclamation).",
+    CLEAN: "professionnels du nettoyage indépendants et petites entreprises (prestataires) et gîtes / locations Airbnb (clients), en Ille-et-Vilaine d'abord.",
+  };
+  const cible = cibles[p.name];
+  return `Travail du ${date} sur ${p.name} : ton seul objectif est le PREMIER EURO encaissé, puis le suivant.
+1. Bloquant n°1 : lis l'état réel (lire_projet, analyser_site${p.website ? ` sur ${p.website}` : ""}). Si quelque chose empêche d'encaisser (paiement non branché, site hors ligne, faille), écris en tête de ton rapport, en 3 lignes maximum, l'action EXACTE que le fondateur doit faire (où cliquer, quoi copier) — une seule.
+${cible && p.website ? `2. Prospection : lister_prospects pour éviter les doublons, puis trouve avec web_search 10 NOUVEAUX prospects réels : ${cible}
+   Pour chacun : ajouter_prospect avec la page source, l'e-mail ou le téléphone SEULEMENT s'ils sont écrits sur une page, et un message personnalisé (objet + 6 lignes max, lien ${p.website}). Le fondateur les envoie en un clic.
+3. Relances : pour les prospects « contacté » depuis plus de 5 jours, propose une relance courte dans ton rapport.` : "2. Ce projet n'est pas encore vendable : donne la liste ordonnée de ce qui manque pour encaisser, avec qui fait quoi."}
+Termine par : prospects ajoutés aujourd'hui, total à contacter, et la prochaine étape vers le premier euro.`;
 }

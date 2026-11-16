@@ -61,7 +61,21 @@ async function retryFailedRobots() {
 const REDO = [{ key: "redo:la-fabrique-automobile:v1", company: "La Fabrique Automobile" }];
 
 async function oneShotRedo() {
-  const { redoCompany } = await import("@/lib/daily-control");
+  const { redoCompany, projectMission } = await import("@/lib/daily-control");
+  // Demande du fondateur : les chefs de projet se mettent au travail tout de suite (une fois), puis chaque matin.
+  if (!(await prisma.appSetting.findUnique({ where: { key: "projets-au-travail:v1" } }))) {
+    await prisma.appSetting.create({ data: { key: "projets-au-travail:v1", value: new Date().toISOString() } });
+    const { ensureDefaultProjects } = await import("@/lib/projects");
+    await ensureDefaultProjects();
+    const { projectAgentSlug } = await import("@/lib/agents");
+    const { executeAgent, agentsConfigured } = await import("@/lib/agent-runtime");
+    if (agentsConfigured()) {
+      const date = new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full" });
+      for (const p of await prisma.project.findMany({ where: { active: true, website: { not: null } } })) {
+        await executeAgent({ slug: projectAgentSlug(p), kind: "DAILY", task: projectMission(p, date) }).catch((e) => console.error("[projets]", p.name, e));
+      }
+    }
+  }
   for (const r of REDO) {
     if (await prisma.appSetting.findUnique({ where: { key: r.key } })) continue;
     await prisma.appSetting.create({ data: { key: r.key, value: new Date().toISOString() } });

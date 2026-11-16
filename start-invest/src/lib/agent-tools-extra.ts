@@ -188,6 +188,32 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
         name: "lire_projet",
         description: "État réel d'un projet sur GitHub (lecture seule) : README, 15 derniers changements, tâches et demandes de fusion ouvertes, derniers builds, liste des documents. Avec « fichier » : lit ce document du dépôt (ex. docs/13-launch-timeline.md).",
         input_schema: { type: "object", properties: { projet: { type: "string" }, fichier: { type: "string" } }, required: ["projet"], additionalProperties: false },
+      },
+      {
+        name: "ajouter_prospect",
+        description:
+          "Enregistre un client potentiel RÉEL trouvé par web_search (ex. un garage pour Vente Auto Sécurité) avec un message d'approche personnalisé, prêt à être envoyé par le fondateur en un clic (page Projets). OBLIGATOIRE : « source » = l'adresse de la page où tu as lu le nom et les coordonnées. N'invente jamais une adresse e-mail ni un numéro : laisse vide si tu ne l'as pas lu. Uniquement des professionnels (adresse de contact de l'entreprise). Le message : court (6 lignes max), vouvoiement, personnalisé (ville, activité), une offre claire, un lien vers le site du projet, et la phrase « Pour ne plus recevoir de message, répondez STOP. ».",
+        input_schema: {
+          type: "object",
+          properties: {
+            projet: { type: "string" },
+            nom: { type: "string" },
+            ville: { type: "string" },
+            telephone: { type: "string" },
+            email: { type: "string" },
+            site: { type: "string" },
+            source: { type: "string" },
+            objet: { type: "string" },
+            message: { type: "string" },
+          },
+          required: ["projet", "nom", "source", "message"],
+          additionalProperties: false,
+        },
+      },
+      {
+        name: "lister_prospects",
+        description: "Prospects déjà enregistrés pour un projet et leur statut (à contacter, contacté, intéressé, client, refus), pour ne pas faire de doublon et suivre les relances.",
+        input_schema: { type: "object", properties: { projet: { type: "string" } }, required: ["projet"], additionalProperties: false },
       }
     );
   }
@@ -230,7 +256,7 @@ export function extraTools(agent: AgentDef): Anthropic.Beta.BetaTool[] {
   return tools;
 }
 
-export const EXTRA_TOOL_NAMES = new Set(["resultats_societe", "lister_rdv", "rentabilite_atelier", "noter_rdv", "modifier_rdv", "lister_portails", "consulter_portail", "boites_mail", "mail_enregistrer_facture", "lister_atelier", "preparer_document_atelier", "lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
+export const EXTRA_TOOL_NAMES = new Set(["resultats_societe", "ajouter_prospect", "lister_prospects", "lister_rdv", "rentabilite_atelier", "noter_rdv", "modifier_rdv", "lister_portails", "consulter_portail", "boites_mail", "mail_enregistrer_facture", "lister_atelier", "preparer_document_atelier", "lister_projets", "lire_projet", "corriger_agent", "presence_en_ligne", "analyser_site", "lister_demandes_terrain", "mails_rechercher", "mail_lire", "drive_lister", "mail_ranger", "drive_creer_dossier", "drive_deplacer"]);
 
 async function scopeCompany(agent: AgentDef, name?: string) {
   const all = await prisma.company.findMany({ where: { active: true } });
@@ -399,6 +425,30 @@ export async function runExtraTool(name: string, input: Record<string, unknown>,
       const title = `${kind === "OR" ? "OR" : "Devis"} ${(input.client as { nom: string }).nom} — ${[v.marque, v.modele].filter(Boolean).join(" ")} ${v.immatriculation} — ${totalHt.toFixed(2)} € HT`.slice(0, 200);
       const t = await prisma.robotTask.create({ data: { companyId: c.id, provider: "GTAPRO", kind, title, payload: JSON.stringify({ ...input, total_ht: totalHt }), createdBy: agent.slug } });
       return { ok: true, id: t.id, statut: "BROUILLON — à valider par le fondateur dans la page Atelier", titre: title };
+    }
+    case "ajouter_prospect":
+    case "lister_prospects": {
+      if (!canSeeProjects(agent)) throw new Error("Réservé à la direction des projets.");
+      const proj = await prisma.project.findFirst({ where: { name: { equals: String(input.projet ?? "") } } })
+        ?? (await prisma.project.findMany({ where: { active: true } })).find((p) => p.name.toLowerCase().includes(String(input.projet ?? "").toLowerCase()));
+      if (!proj) throw new Error(`Projet « ${input.projet} » introuvable (lister_projets).`);
+      if (agent.slug.startsWith("projet-") && (await import("@/lib/agents")).projectAgentSlug(proj) !== agent.slug) throw new Error("Tu ne travailles que sur ton propre projet.");
+      if (name === "lister_prospects") {
+        const list = await prisma.prospect.findMany({ where: { project: proj.name }, orderBy: { createdAt: "desc" }, take: 300 });
+        return list.map((x) => ({ nom: x.name, ville: x.city, email: x.email, telephone: x.phone, statut: x.status, note: x.note, ajoute: x.createdAt.toISOString().slice(0, 10), contacte: x.contactedAt?.toISOString().slice(0, 10) ?? null }));
+      }
+      const str = (k: string, max = 300) => (typeof input[k] === "string" ? (input[k] as string).trim().slice(0, max) : "") || null;
+      const source = str("source", 500);
+      if (!source || !/^https?:\/\//.test(source)) throw new Error("« source » doit être l'adresse (https://...) de la page où tu as trouvé ce prospect.");
+      const email = str("email", 200);
+      if (email && !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) throw new Error("Adresse e-mail invalide.");
+      const data = { name: str("nom", 150)!, city: str("ville", 100), phone: str("telephone", 40), email, website: str("site", 300), source, subject: str("objet", 150), message: str("message", 2000), createdBy: agent.slug };
+      const exists = await prisma.prospect.findFirst({ where: { project: proj.name, name: data.name, city: data.city } });
+      if (exists) return { deja: true, statut: exists.status };
+      const total = await prisma.prospect.count({ where: { project: proj.name, createdAt: { gte: new Date(Date.now() - 24 * 3600 * 1000) } } });
+      if (total >= 40) throw new Error("40 prospects ajoutés en 24 h : assez pour aujourd'hui, le fondateur doit d'abord les traiter.");
+      await prisma.prospect.create({ data: { project: proj.name, ...data } });
+      return { ok: true, statut: "À contacter — le fondateur l'envoie en un clic depuis la page Projets" };
     }
     case "lister_projets": {
       if (!canSeeProjects(agent)) throw new Error("Réservé à la direction des projets.");

@@ -60,3 +60,26 @@ export async function reviewNow(projectId: string | null) {
   );
   redirect(`/agents?agent=${slug}`);
 }
+
+const PROSPECT_STATUS = ["A_CONTACTER", "CONTACTE", "INTERESSE", "CLIENT", "REFUS"];
+
+/** Suivi d'un prospect trouvé par un agent (le fondateur envoie lui-même le message). */
+export async function setProspectStatus(id: string, status: string) {
+  const me = await requireAdmin();
+  if (!PROSPECT_STATUS.includes(status)) return;
+  const x = await prisma.prospect.update({ where: { id }, data: { status, ...(status === "CONTACTE" ? { contactedAt: new Date() } : {}) } });
+  await audit(me, "prospect_statut", `${x.project} — ${x.name} : ${status}`);
+  revalidatePath("/projets");
+}
+
+/** Met un chef de projet au travail tout de suite sur sa mission du jour (premier euro, prospection). */
+export async function workNow(projectId: string) {
+  const me = await requireAdmin();
+  if (!agentsConfigured()) redirect("/projets?msg=" + encodeURIComponent("Agents IA non activés (ANTHROPIC_API_KEY manquante)."));
+  const p = await prisma.project.findUniqueOrThrow({ where: { id: projectId } });
+  const { projectMission } = await import("@/lib/daily-control");
+  const date = new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full" });
+  await audit(me, "projet_mission_lancee", p.name);
+  after(() => executeAgent({ slug: projectAgentSlug(p), userId: me.id, kind: "DAILY", task: projectMission(p, date) }).then(() => undefined).catch(() => undefined));
+  redirect("/projets?msg=" + encodeURIComponent(`${p.name} : le chef de projet est au travail (10 à 20 minutes). Les prospects trouvés apparaissent ci-dessous, prêts à envoyer.`));
+}

@@ -505,7 +505,7 @@ export async function executeAgent(opts: {
       });
     }
     if (agent.tools.some((t) => /websearch|webfetch/i.test(t))) {
-      tools.push({ type: "web_search_20260209", name: "web_search", max_uses: 5 });
+      tools.push({ type: "web_search_20260209", name: "web_search", max_uses: agent.slug.startsWith("projet-") ? 25 : 5 });
     }
 
     const messages: Anthropic.Beta.BetaMessageParam[] = [

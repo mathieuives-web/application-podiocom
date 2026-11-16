@@ -3,11 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { projectAgentSlug } from "@/lib/agents";
 import { ensureDefaultProjects } from "@/lib/projects";
-import { createProject, reviewNow, updateProject } from "./actions";
+import { createProject, reviewNow, setProspectStatus, updateProject, workNow } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 const STATUS: Record<string, string> = { IDEE: "Idée", EN_COURS: "En cours", LANCE: "Lancé", EN_PAUSE: "En pause" };
+const PSTATUS: Record<string, string> = { A_CONTACTER: "À contacter", CONTACTE: "Contacté", INTERESSE: "Intéressé", CLIENT: "Client ✅", REFUS: "Refus" };
 
 function Fields({ p }: { p?: { description: string | null; goal: string | null; repo: string | null; website: string | null; status: string; notes: string | null } }) {
   return (
@@ -26,10 +27,11 @@ export default async function ProjetsPage({ searchParams }: { searchParams: Prom
   await requireAdmin();
   await ensureDefaultProjects();
   const { msg } = await searchParams;
-  const [projects, github, runs] = await Promise.all([
+  const [projects, github, runs, prospects] = await Promise.all([
     prisma.project.findMany({ orderBy: [{ active: "desc" }, { name: "asc" }] }),
     prisma.integration.findFirst({ where: { provider: "GITHUB" } }),
     prisma.agentRun.findMany({ where: { OR: [{ agent: { startsWith: "projet-" } }, { agent: "directeur-projets" }], parentId: null }, orderBy: { startedAt: "desc" }, take: 50 }),
+    prisma.prospect.findMany({ where: { status: { not: "REFUS" } }, orderBy: [{ status: "asc" }, { createdAt: "desc" }], take: 400 }),
   ]);
   const last = (slug: string) => runs.find((r) => r.agent === slug);
   const dir = last("directeur-projets");
@@ -41,7 +43,8 @@ export default async function ProjetsPage({ searchParams }: { searchParams: Prom
           <h1 className="text-xl font-bold">Projets</h1>
           <p className="text-sm text-slate-500">
             Vos projets à côté des sociétés : un <strong>chef de projet</strong> par projet, sous le <strong>Directeur des projets</strong>.
-            Chaque lundi, le point de tous les projets : état réel, reste à faire, priorité de la semaine.
+            Chaque matin, chaque chef de projet travaille pour le premier euro : bloquant à lever, nouveaux clients potentiels trouvés et message prêt.
+            Vous n&apos;avez qu&apos;à cliquer « Envoyer ». Le lundi, point de tous les projets par le Directeur des projets.
           </p>
         </div>
         <form action={reviewNow.bind(null, null)}><button className="btn-primary" style={{ background: "#7f1d1d" }}>Point de tous les projets maintenant</button></form>
@@ -71,6 +74,7 @@ export default async function ProjetsPage({ searchParams }: { searchParams: Prom
                 </div>
                 <div className="flex gap-2 items-start">
                   <Link href={`/agents?agent=${slug}`} className="text-xs underline whitespace-nowrap">Chef de projet</Link>
+                  <form action={workNow.bind(null, p.id)}><button className="btn-primary text-xs whitespace-nowrap">Au travail maintenant</button></form>
                   <form action={reviewNow.bind(null, p.id)}><button className="btn-secondary text-xs whitespace-nowrap">Faire le point</button></form>
                 </div>
               </div>
@@ -79,6 +83,40 @@ export default async function ProjetsPage({ searchParams }: { searchParams: Prom
                   <summary className="cursor-pointer text-xs underline">Dernier point ({r.startedAt.toLocaleDateString("fr-FR")}{r.status === "RUNNING" ? ", en cours…" : ""})</summary>
                   <div className="whitespace-pre-wrap text-slate-700 mt-2 max-h-96 overflow-y-auto">{r.output}</div>
                 </details>
+              )}
+              {prospects.some((x) => x.project === p.name) && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-semibold">
+                    Clients potentiels ({prospects.filter((x) => x.project === p.name && x.status === "A_CONTACTER").length} à contacter ·{" "}
+                    {prospects.filter((x) => x.project === p.name && x.status === "CLIENT").length} client(s))
+                  </h3>
+                  <ul className="divide-y text-sm max-h-[36rem] overflow-y-auto">
+                    {prospects.filter((x) => x.project === p.name).map((x) => (
+                      <li key={x.id} className="py-2 space-y-1">
+                        <div className="flex flex-wrap justify-between gap-2">
+                          <span><strong>{x.name}</strong>{x.city ? ` · ${x.city}` : ""} <span className="text-xs text-slate-500">· {PSTATUS[x.status] ?? x.status}</span></span>
+                          <span className="flex flex-wrap gap-2 text-xs">
+                            {x.email && <a className="btn-primary text-xs py-0.5" href={`mailto:${x.email}?subject=${encodeURIComponent(x.subject ?? p.name)}&body=${encodeURIComponent(x.message ?? "")}`}>Envoyer l&apos;e-mail</a>}
+                            {x.phone && <a className="btn-secondary text-xs py-0.5" href={`tel:${x.phone.replace(/\s/g, "")}`}>Appeler {x.phone}</a>}
+                            {x.website && <a className="underline" href={x.website} target="_blank" rel="noreferrer">site</a>}
+                            <a className="underline text-slate-500" href={x.source} target="_blank" rel="noreferrer">source</a>
+                          </span>
+                        </div>
+                        {x.message && (
+                          <details className="text-xs text-slate-600">
+                            <summary className="cursor-pointer">message préparé{x.subject ? ` : « ${x.subject} »` : ""}</summary>
+                            <p className="whitespace-pre-wrap mt-1">{x.message}</p>
+                          </details>
+                        )}
+                        <div className="flex flex-wrap gap-1">
+                          {["CONTACTE", "INTERESSE", "CLIENT", "REFUS"].filter((st) => st !== x.status).map((st) => (
+                            <form key={st} action={setProspectStatus.bind(null, x.id, st)}><button className="text-xs border rounded px-1.5 py-0.5 hover:bg-slate-50">{st === "CONTACTE" ? "envoyé / appelé" : PSTATUS[st]}</button></form>
+                          ))}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               <details>
                 <summary className="text-xs underline cursor-pointer">Modifier</summary>

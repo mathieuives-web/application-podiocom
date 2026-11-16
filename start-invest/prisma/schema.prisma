@@ -14,16 +14,16 @@ enum Role {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
   name         String
-  role         Role     @default(MEMBER)
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
+  role         Role      @default(MEMBER)
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
   // Double authentification (code à 6 chiffres d'une application type Google Authenticator)
   totpSecret   String? // chiffré
-  totpEnabled  Boolean  @default(false)
+  totpEnabled  Boolean   @default(false)
   passkeys     Passkey[]
 }
 
@@ -388,7 +388,7 @@ model Employee {
   rules              String    @default("{}")
   rulesNote          String? // résumé / conditions particulières du contrat
   leaveDaysPerYear   Float     @default(25)
-  weeklyHours        Float    @default(35) // heures de présence prévues par semaine (atelier : base de la rentabilité)
+  weeklyHours        Float     @default(35) // heures de présence prévues par semaine (atelier : base de la rentabilité)
   schedule           String? // horaires / rythme (ex. apprenti : semaines école et entreprise)
   contractDocumentId String?
   createdAt          DateTime  @default(now())
@@ -453,7 +453,7 @@ model FieldRequest {
   merchant   String?
   spentAt    DateTime?
   vehicle    String? // véhicule ou client concerné si mentionné
-  minutes     Int? // temps passé déclaré par le salarié (intervention)
+  minutes    Int? // temps passé déclaré par le salarié (intervention)
   summary    String? // résumé par l'IA
   urgent     Boolean   @default(false)
   status     String    @default("NOUVEAU") // NOUVEAU | TRAITE
@@ -500,21 +500,21 @@ model RobotTask {
 
 // ------------------------------------------------------------------ rendez-vous et planning d'atelier
 model Appointment {
-  id          String    @id @default(cuid())
-  companyId   String
-  start       DateTime
-  minutes     Int       @default(60) // durée prévue (temps barème Autodata quand connu)
-  client      String
-  phone       String?
-  vehicle     String? // marque modèle immatriculation
-  work        String // prestation prévue
-  employeeId  String? // mécanicien affecté
-  status      String    @default("PREVU") // PREVU | CONFIRME | EN_COURS | TERMINE | ANNULE | ABSENT
-  source      String? // téléphone, mail, WhatsApp, site, agent...
-  notes       String?
-  createdBy   String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String   @id @default(cuid())
+  companyId  String
+  start      DateTime
+  minutes    Int      @default(60) // durée prévue (temps barème Autodata quand connu)
+  client     String
+  phone      String?
+  vehicle    String? // marque modèle immatriculation
+  work       String // prestation prévue
+  employeeId String? // mécanicien affecté
+  status     String   @default("PREVU") // PREVU | CONFIRME | EN_COURS | TERMINE | ANNULE | ABSENT
+  source     String? // téléphone, mail, WhatsApp, site, agent...
+  notes      String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([companyId, start])
 }
@@ -557,4 +557,26 @@ model RecoveryCode {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+}
+
+// ------------------------------------------------------------------ prospects trouvés par les agents projets
+model Prospect {
+  id          String    @id @default(cuid())
+  project     String // nom du projet (ex. « Vente Auto Sécurité »)
+  name        String // entreprise
+  city        String?
+  phone       String?
+  email       String?
+  website     String?
+  source      String // page où l'agent a trouvé l'information (preuve, jamais inventée)
+  message     String? // message d'approche préparé par l'agent (envoyé par le fondateur)
+  subject     String?
+  status      String    @default("A_CONTACTER") // A_CONTACTER | CONTACTE | INTERESSE | CLIENT | REFUS
+  note        String?
+  createdBy   String?
+  contactedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([project, name, city])
 }
