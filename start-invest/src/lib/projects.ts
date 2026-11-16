@@ -72,6 +72,14 @@ export async function ensureDefaultProjects() {
 
 const SITE_BAR_RESTO = "https://lafabrique-lusine-montreuil.vercel.app/";
 const PRESENCE: Record<string, { website: string; instagram?: string; facebook?: string; googleBusiness?: string }> = {
+  "La Fabrique Automobile": {
+    website: "https://www.lafabriqueautomobile.fr/",
+    instagram: "https://www.instagram.com/lafabriqueautomobile/",
+  },
+  "Auto Rac Ives": {
+    // Pas de site propre : seule la page « L'atelier » du site de La Fabrique Automobile.
+    website: "https://www.lafabriqueautomobile.fr/nos-services/atelier-a-montreuil-sur-ille.html",
+  },
   "La Fabrique Restaurant": {
     website: SITE_BAR_RESTO,
     instagram: "https://www.instagram.com/restaurant_lafabrique/",
@@ -97,6 +105,24 @@ const SITE_AUDIT = `Audit initial du site commun ${SITE_BAR_RESTO} (16/11/2026) 
 - Polices Google Fonts chargées depuis Google : les héberger sur le site (vitesse et RGPD).
 - Points forts à garder : titre et description bons, FAQ balisée, horaires, téléphone et adresse visibles, liens « Laisser un avis », mention Loi Évin.`;
 
+const AUDIT_LFA = `Audit initial de https://www.lafabriqueautomobile.fr (16/11/2026, site de l'agence Futur Digital) — à traiter dans l'ordre :
+- RISQUE : une quarantaine de pages « satellites » du type « garage Ferrari Dinard », « garage Maserati Rennes », « vente Porsche occasion pas cher Rennes », « mandataire automobile Fougères » (liens « Recherches fréquentes » en bas de page). Google les considère comme des pages satellites (doorway pages) s'il s'agit du même texte avec la ville changée : risque de déclassement de TOUT le site. Et « garage Ferrari / Maserati » peut laisser croire à un garage agréé par la marque (usage de marque trompeur). Les vérifier une par une : fusionner en quelques vraies pages riches (ex. « Voitures de sport d'occasion près de Rennes et Saint-Malo »), supprimer « garage Ferrari / Maserati » ou écrire clairement « entretien de Ferrari, garage indépendant ».
+- Titre de l'accueil faible : « LA FABRIQUE AUTOMOBILE - Le spécialiste de  véhicules de prestige » (double espace, pas de ville). Proposer : « Voitures de sport et de prestige d'occasion près de Rennes | La Fabrique Automobile ». H1 = seulement le nom : mettre la promesse + la ville.
+- Données structurées : « description » vide, « priceRange » à « N/A », pas d'avis, pas de « sameAs » (Instagram, Leboncoin, Facebook). Fiches véhicules : vérifier la présence du balisage « Car » / « Vehicle » avec « Offer » (prix, kilométrage, année) pour apparaître dans les résultats Google de véhicules.
+- Bug visible : la fenêtre de prise de rendez-vous affiche « Prendre rendez-vous pour le mercredi 6 janvier 2016 ».
+- 13 images sur 39 sans texte alternatif ; deux numéros (07 69 18 98 34 et 02 99 84 57 87) : choisir le principal et le même partout (site, Google, Leboncoin, annuaires).
+- Seulement 3 véhicules affichés en stock sur l'accueil (Nissan 370Z, Porsche 911 996, Audi S5) : le stock du site doit refléter Auto Cerfa en temps réel (multidiffusion), chaque véhicule avec 15+ photos, vidéo, description longue et unique.
+- Le bar et la pizzeria ont des pages sur ce site : les relier au nouveau site commun lafabrique-lusine.
+- Auto Rac'Ives (l'atelier) n'est jamais nommé sur le site : voir avec l'agent Site & réseaux d'Auto Rac Ives.
+- Points forts : canonical correct, HTTPS, pages services (dépôt-vente, recherche personnalisée, location, detailing, atelier), actualités, avis Google à faire remonter.`;
+
+const AUDIT_ARI = `Audit initial Auto Rac'Ives (16/11/2026) :
+- AUCUN site propre ; le nom « Auto Rac'Ives » n'apparaît même pas sur lafabriqueautomobile.fr (seulement une page « L'atelier »). Sur Google, on ne trouve que des annuaires (Pages Jaunes, societe.com...).
+- Un annuaire (lavieduvillage.fr) place Auto Rac'Ives à « Montreuil-le-Gast » : adresse fausse. Uniformiser partout : AUTO RAC'IVES, 26 rue des Usines, 35440 Montreuil-sur-Ille, même téléphone (Pages Jaunes, annuaires, Google, Facebook).
+- Priorité 1 : fiche Google Business Profile complète (catégorie « Garage automobile » + « Atelier de réparation automobile », horaires, prestations avec prix d'appel : vidange, freins, pneus, diagnostic, climatisation, distribution), 20+ photos, et un message de demande d'avis après chaque intervention.
+- Priorité 2 : une vraie page « Auto Rac'Ives – garage mécanique à Montreuil-sur-Ille » (ou un petit site) : prestations, prix d'appel, marques entretenues, prise de rendez-vous, avis, zone (Montreuil-sur-Ille, Saint-Aubin-d'Aubigné, Melesse, Saint-Germain-sur-Ille, Chevaigné, Rennes nord), balisage AutoRepair.
+- Mots-clés : garage Montreuil-sur-Ille, garage Saint-Aubin-d'Aubigné, vidange Melesse, garage pas cher nord de Rennes, entretien voiture sportive Rennes (lien avec La Fabrique Automobile).`;
+
 /** Renseigne les sites / réseaux connus si le fondateur ne l'a pas fait, et donne l'audit initial aux agents Site & réseaux. */
 export async function ensureKnownPresence() {
   for (const [name, p] of Object.entries(PRESENCE)) {
@@ -109,8 +135,14 @@ export async function ensureKnownPresence() {
     if (!c.googleBusiness && p.googleBusiness) data.googleBusiness = p.googleBusiness;
     if (Object.keys(data).length) await prisma.company.update({ where: { id: c.id }, data });
   }
-  for (const agent of ["web-reseaux-fabrique-restaurant", "web-reseaux-bar-lusine"]) {
+  const audits: Record<string, string> = {
+    "web-reseaux-fabrique-restaurant": `${SITE_AUDIT}\n- Le site est commun à La Fabrique (pizzeria) et L'Usine (bar) : se coordonner avec l'autre agent Site & réseaux.`,
+    "web-reseaux-bar-lusine": `${SITE_AUDIT}\n- Le site est commun à La Fabrique (pizzeria) et L'Usine (bar) : se coordonner avec l'autre agent Site & réseaux.`,
+    "web-reseaux-fabrique-automobile": AUDIT_LFA,
+    "web-reseaux-auto-rac-ives": AUDIT_ARI,
+  };
+  for (const [agent, content] of Object.entries(audits)) {
     const mem = await prisma.agentMemory.findUnique({ where: { agent } });
-    if (!mem) await prisma.agentMemory.create({ data: { agent, content: `${SITE_AUDIT}\n- Le site est commun à La Fabrique (pizzeria) et L'Usine (bar) : se coordonner avec l'autre agent Site & réseaux.` } });
+    if (!mem) await prisma.agentMemory.create({ data: { agent, content } });
   }
 }
