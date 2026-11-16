@@ -100,3 +100,13 @@ export async function createRecoveryCodes() {
   await audit(me, "codes_de_secours_crees", "10 codes");
   return codes;
 }
+
+/** Clé du récapitulatif lu par Claude deux fois par jour (affichée une seule fois). */
+export async function createRecapKey() {
+  const me = await requireUser();
+  if (me.role !== "ADMIN") throw new Error("Réservé au fondateur.");
+  const { newRecapKey } = await import("@/lib/recap-key");
+  const key = await newRecapKey();
+  await audit(me, "cle_recap_creee", "récapitulatif Claude");
+  return key;
+}

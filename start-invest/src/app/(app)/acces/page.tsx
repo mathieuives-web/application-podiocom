@@ -3,9 +3,11 @@ import { isAdmin, requireUser } from "@/lib/session";
 import QRCode from "qrcode";
 import { decryptJson } from "@/lib/crypto";
 import { totpUri } from "@/lib/totp";
-import { changeMyPassword, confirmTotp, createRecoveryCodes, createUser, removePasskey, resetUserTotp, startTotpSetup, toggleUser } from "./actions";
+import { changeMyPassword, confirmTotp, createRecapKey, createRecoveryCodes, createUser, removePasskey, resetUserTotp, startTotpSetup, toggleUser } from "./actions";
 import PasskeyRegister from "./PasskeyRegister";
 import RecoveryCodes from "./RecoveryCodes";
+import RecapKey from "./RecapKey";
+import { recapKeyExists } from "@/lib/recap-key";
 import { recoveryCodesLeft } from "@/lib/recovery";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +21,7 @@ export default async function AccesPage({ searchParams }: { searchParams: Promis
   const meDb = await prisma.user.findUniqueOrThrow({ where: { id: me.id } });
   const passkeys = await prisma.passkey.findMany({ where: { userId: me.id }, orderBy: { createdAt: "asc" } });
   const codesLeft = await recoveryCodesLeft(me.id);
+  const recapExists = admin ? await recapKeyExists() : false;
   let qr: string | null = null;
   let secret: string | null = null;
   if (setup && meDb.totpSecret && !meDb.totpEnabled) {
@@ -53,6 +56,13 @@ export default async function AccesPage({ searchParams }: { searchParams: Promis
         )}
         <p className="text-xs text-slate-500">Téléphone perdu : retirez-le ici depuis un autre appareil.</p>
       </section>
+
+      {admin && (
+        <section className={`card space-y-3 ${recapExists ? "" : "border-sky-300 bg-sky-50"}`}>
+          <h2 className="font-semibold">Récapitulatif de Claude, 2 fois par jour {recapExists ? "✅" : ""}</h2>
+          <RecapKey action={createRecapKey} exists={recapExists} />
+        </section>
+      )}
 
       <section className={`card space-y-3 ${codesLeft ? "" : "border-amber-300 bg-amber-50"}`}>
         <h2 className="font-semibold">Codes de secours (mot de passe oublié) {codesLeft ? "✅" : "⚠️"}</h2>
