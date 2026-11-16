@@ -67,3 +67,21 @@ export async function setPasswordWithToken(token: string, password: string, ip: 
   await audit({ id: u.id, email: u.email }, "mot_de_passe_reinitialise", `IP ${ip ?? "?"}`);
   return { ok: true };
 }
+
+/** Valide une demande de connexion avec un code de secours (pas d'autre appareil connecté). Le code est consommé. */
+export async function approveRequestWithRecoveryCode(requestId: string, code: string, ip: string | null) {
+  const req = await prisma.loginRequest.findUnique({ where: { id: requestId } });
+  if (!req || req.status !== "PENDING" || req.expiresAt < new Date()) return false;
+  const failures = await prisma.loginAttempt.count({ where: { success: false, createdAt: { gte: new Date(Date.now() - 15 * 60 * 1000) }, ...(ip ? { ip } : {}) } });
+  if (failures >= 5) return false;
+  const rc = await prisma.recoveryCode.findFirst({ where: { userId: req.userId, usedAt: null, codeHash: sha(norm(code)) } });
+  if (!rc) {
+    await prisma.loginAttempt.create({ data: { email: "code de secours", ip, success: false } });
+    return false;
+  }
+  const used = await prisma.recoveryCode.updateMany({ where: { id: rc.id, usedAt: null }, data: { usedAt: new Date() } });
+  if (!used.count) return false;
+  const ok = await prisma.loginRequest.updateMany({ where: { id: requestId, status: "PENDING" }, data: { status: "APPROVED" } });
+  await audit({ id: req.userId }, "connexion_validee_code_de_secours", `IP ${ip ?? "?"}`);
+  return ok.count > 0;
+}

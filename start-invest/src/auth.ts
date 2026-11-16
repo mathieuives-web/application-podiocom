@@ -61,7 +61,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (await cookies()).delete(LR_COOKIE);
         if (!user || !user.active) return null;
         await prisma.loginAttempt.create({ data: { email: user.email, ip, success: true } });
-        await audit({ id: user.id, email: user.email }, "connexion", `ordinateur validé par téléphone — IP ${ip ?? "?"}`);
+        await audit({ id: user.id, email: user.email }, "connexion", `validée par un autre appareil ou un code de secours — IP ${ip ?? "?"}`);
         return { id: user.id, email: user.email, name: user.name, role: user.role };
       },
     }),
