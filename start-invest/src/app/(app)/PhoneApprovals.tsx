@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { startAuthentication } from "@simplewebauthn/browser";
 
 type Req = { id: string; code: string; ip: string | null; device: string | null; createdAt: string };
 
@@ -27,17 +26,12 @@ export default function PhoneApprovals() {
   if (!reqs.length && !msg) return null;
   const decide = async (r: Req, approve: boolean) => {
     try {
-      let response;
-      if (approve) {
-        const options = await fetch("/api/passkey/login-options", { method: "POST" }).then((x) => x.json());
-        response = await startAuthentication(options);
-      }
-      const res = await fetch("/api/connexion-pc/decision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: r.id, approve, response }) }).then((x) => x.json());
+      const res = await fetch("/api/connexion-pc/decision", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: r.id, approve }) }).then((x) => x.json());
       setMsg(res.ok ? (approve ? "✅ Connexion approuvée sur l'autre appareil." : "Connexion refusée.") : res.error ?? "Échec.");
       setReqs((x) => x.filter((y) => y.id !== r.id));
       setTimeout(() => setMsg(null), 6000);
     } catch {
-      setMsg("Face ID annulé : rien n'a été approuvé.");
+      setMsg("Échec : réessayez.");
     }
   };
   return (
