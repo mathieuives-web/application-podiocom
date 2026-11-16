@@ -12,21 +12,36 @@ let busy = false;
 let lastSync = 0;
 
 function parisHour() {
-  return Number(new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  // formatToParts : le format français donne « 14 h », que Number() ne sait pas lire (NaN = contrôle jamais lancé).
+  const h = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Paris", hour: "numeric", hourCycle: "h23" }).formatToParts(new Date()).find((x) => x.type === "hour")?.value;
+  return Number(h ?? 0);
 }
+
+const BOOT = new Date();
 
 async function tick() {
   if (busy) return;
   busy = true;
   try {
     const hour = Number(process.env.DAILY_CONTROL_HOUR ?? 7);
-    const done = await prisma.dailyControl.findUnique({ where: { day: parisDay() } });
-    if (!done && parisHour() >= hour) {
-      await runDailyControl();
+    const day = parisDay();
+    const done = await prisma.dailyControl.findUnique({ where: { day } });
+    // Contrôle du jour pas fait, ou interrompu (redémarrage, erreur) : on le (re)lance, 3 essais maximum par jour.
+    const key = `controle-essais:${day}`;
+    const tries = Number((await prisma.appSetting.findUnique({ where: { key } }))?.value) || 0;
+    if (parisHour() >= hour && (!done || (done.status === "ERROR" && tries < 3))) {
+      await prisma.appSetting.upsert({ where: { key }, update: { value: String(tries + 1) }, create: { key, value: String(tries + 1) } });
+      await runDailyControl({ force: Boolean(done) });
       lastSync = Date.now();
     } else if (Date.now() - lastSync > 55 * 60 * 1000) {
       await syncAll();
       lastSync = Date.now();
+      // Opérations jamais classées (nouvelles ou restées en attente) : l'IA les classe à chaque passage horaire.
+      const pending = await prisma.bankTransaction.count({ where: { category: null, account: { excluded: false } } });
+      if (pending > 0 && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
+        const { aiCategorize } = await import("@/lib/categorization");
+        await aiCategorize().catch((e) => console.error("[classement]", (e as Error).message));
+      }
     }
   } catch (e) {
     console.error("[planificateur]", e);
@@ -38,6 +53,10 @@ async function tick() {
 export function startScheduler() {
   if (started || process.env.SCHEDULER === "off") return;
   started = true;
+  // Un contrôle resté « en cours » avant ce démarrage a été coupé par le redémarrage : il sera relancé.
+  void prisma.dailyControl
+    .updateMany({ where: { status: "RUNNING", startedAt: { lt: BOOT } }, data: { status: "ERROR", log: "Interrompu par un redémarrage du serveur : relancé automatiquement." } })
+    .catch(() => undefined);
   lastSync = Date.now(); // première synchro horaire une heure après le démarrage
   setTimeout(tick, 60 * 1000);
   // Au démarrage (nouvelle version en ligne) : les robots en échec réessaient tout de suite, sans attendre leur créneau.
@@ -58,29 +77,45 @@ async function retryFailedRobots() {
   }
 }
 
-const REDO = [{ key: "redo:la-fabrique-automobile:v2", company: "La Fabrique Automobile" }];
+// Remises à plat : la clé n'est posée qu'APRÈS réussite, pour reprendre si le serveur redémarre en cours de route.
+let redoRunning = false;
 
 async function oneShotRedo() {
-  const { redoCompany, projectMission } = await import("@/lib/daily-control");
-  // Demande du fondateur : les chefs de projet se mettent au travail tout de suite (une fois), puis chaque matin.
-  if (!(await prisma.appSetting.findUnique({ where: { key: "projets-au-travail:v1" } }))) {
-    await prisma.appSetting.create({ data: { key: "projets-au-travail:v1", value: new Date().toISOString() } });
-    const { ensureDefaultProjects } = await import("@/lib/projects");
-    await ensureDefaultProjects();
-    const { projectAgentSlug } = await import("@/lib/agents");
-    const { executeAgent, agentsConfigured } = await import("@/lib/agent-runtime");
-    if (agentsConfigured()) {
+  if (redoRunning) return;
+  redoRunning = true;
+  try {
+    const { redoCompany, projectMission } = await import("@/lib/daily-control");
+    const { reclassifyCompany } = await import("@/lib/categorization");
+    const { agentsConfigured, executeAgent } = await import("@/lib/agent-runtime");
+    if (!agentsConfigured()) return;
+    // 1. Reclassement complet de chaque société avec son métier (La Fabrique Automobile : + Auto Cerfa + analyse complète).
+    const companies = await prisma.company.findMany({ where: { active: true, transactions: { some: {} } } });
+    companies.sort((a, b) => (a.name === "La Fabrique Automobile" ? -1 : b.name === "La Fabrique Automobile" ? 1 : 0));
+    for (const c of companies) {
+      const key = `reclassement:${c.id}:v3`;
+      if (await prisma.appSetting.findUnique({ where: { key } })) continue;
+      console.log(`[remise à plat] ${c.name} : reclassement complet`);
+      try {
+        if (c.name === "La Fabrique Automobile") await redoCompany(c.id);
+        else await reclassifyCompany(c.id);
+        await prisma.appSetting.create({ data: { key, value: new Date().toISOString() } });
+      } catch (e) {
+        console.error(`[remise à plat] ${c.name} : ${(e as Error).message} (nouvel essai au prochain démarrage)`);
+      }
+    }
+    // 2. Les chefs de projet se mettent au travail tout de suite (une fois), puis chaque matin.
+    if (!(await prisma.appSetting.findUnique({ where: { key: "projets-au-travail:v1" } }))) {
+      const { ensureDefaultProjects } = await import("@/lib/projects");
+      await ensureDefaultProjects();
+      const { projectAgentSlug } = await import("@/lib/agents");
       const date = new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full" });
       for (const p of await prisma.project.findMany({ where: { active: true, website: { not: null } } })) {
         await executeAgent({ slug: projectAgentSlug(p), kind: "DAILY", task: projectMission(p, date) }).catch((e) => console.error("[projets]", p.name, e));
       }
+      await prisma.appSetting.create({ data: { key: "projets-au-travail:v1", value: new Date().toISOString() } });
     }
-  }
-  for (const r of REDO) {
-    if (await prisma.appSetting.findUnique({ where: { key: r.key } })) continue;
-    await prisma.appSetting.create({ data: { key: r.key, value: new Date().toISOString() } });
-    const c = await prisma.company.findFirst({ where: { name: r.company } });
-    if (c) await redoCompany(c.id);
+  } finally {
+    redoRunning = false;
   }
 }
 
