@@ -13,9 +13,9 @@ const DEFAULTS = [
       "Marketplace de services d'entretien et de propreté pour particuliers et professionnels (maison, bureaux, Airbnb, vitres, jardin, véhicules, camping-cars, nautisme, BTP) : demandes, offres, missions, paiements Stripe Connect, preuves qualité. Application web (React/Vite, Supabase « Clean deal1 ») et mobile (Capacitor Android / iOS).",
     goal: "Lancement public avec paiements réels : Stripe de bout en bout (paiement, webhook, Connect, versement, remboursement), applications publiées sur l'App Store et le Play Store, premiers prestataires et clients actifs.",
     repo: "mathieuives-web/Clean",
-    website: null,
+    website: "https://cleanmarketplace.fr/",
     status: "EN_COURS",
-    notes: "Ne jamais déployer le site contre l'ancien Supabase (xjuplwmkccmcjbpyiluu). Aucun secret dans les variables VITE_*. Suivre la liste « Ce qui reste à prouver avant lancement public » du README.",
+    notes: "Ne jamais déployer le site contre l'ancien Supabase (xjuplwmkccmcjbpyiluu). Aucun secret dans les variables VITE_*. Suivre la liste « Ce qui reste à prouver avant lancement public » du README. Domaine cleanmarketplace.fr acheté et en ligne (vérifier qu'il pointe bien vers le bon projet Vercel et le Supabase « Clean deal1 »). À vérifier en priorité : le site annonce « une aide financière pouvant aller jusqu'à 50 % » — c'est le crédit d'impôt des services à la personne, qui n'est possible que pour des prestataires déclarés SAP et des services éligibles : préciser les conditions ou retirer la mention.",
   },
   {
     name: "Vente Auto Sécurité",
@@ -41,6 +41,12 @@ export async function ensureDefaultProjects() {
   if ((await prisma.project.count()) === 0) {
     for (const p of DEFAULTS) await prisma.project.create({ data: p }).catch(() => undefined);
     return;
+  }
+  // Site CLEAN : domaine acheté et en ligne.
+  const clean = await prisma.project.findUnique({ where: { name: "CLEAN" } });
+  if (clean && !clean.website) {
+    const d = DEFAULTS.find((x) => x.name === "CLEAN")!;
+    await prisma.project.update({ where: { id: clean.id }, data: { website: d.website, notes: clean.notes?.includes("cleanmarketplace.fr") ? clean.notes : d.notes } });
   }
   // Fiche Vente Auto Sécurité complétée (offres, prix, cadre légal) tant que le fondateur ne l'a pas réécrite.
   const vas = await prisma.project.findUnique({ where: { name: "Vente Auto Sécurité" } });
