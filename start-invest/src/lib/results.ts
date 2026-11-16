@@ -103,7 +103,11 @@ export async function companyResults(companyId: string, year = new Date().getFul
   if (company.name === "Auto Rac Ives" && !invoices.some((i) => i.provider === "GTAPRO")) manques.push("Factures GTA Pro pas encore lues : nombre de factures de l'atelier inconnu.");
   if (!statements.length) manques.push("Aucun bilan archivé.");
 
-  return { societe: company.name, annee: year, banque, vehicules, factures, bilans, manques };
+  const redo = await prisma.appSetting.findUnique({ where: { key: `remise-a-plat:${companyId}` } });
+  const redoInfo = redo ? (JSON.parse(redo.value) as { at: string; classement?: { erreur?: string } }) : null;
+  const remiseAPlat = redoInfo?.at ?? null;
+  if (redoInfo?.classement?.erreur) manques.push(`Dernière remise à plat : le reclassement a échoué (${redoInfo.classement.erreur}).`);
+  return { id: company.id, societe: company.name, annee: year, banque, vehicules, factures, bilans, manques, remiseAPlat };
 }
 
 export async function groupResults(year = new Date().getFullYear()) {

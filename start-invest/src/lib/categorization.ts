@@ -296,3 +296,99 @@ export async function cashStatement(companyId: string | undefined, year: number)
     virementsInternesNet: Math.round(internal * 100) / 100,
   };
 }
+
+// Connaissances métier par type d'activité : l'IA classe les opérations d'UNE société avec le vocabulaire de son métier.
+const METIER: Record<string, string> = {
+  "La Fabrique Automobile": `Négoce de véhicules d'occasion + dépôt-vente, découvert de 250 000 € garanti par Auxiga (gage sur le stock).
+- Virement reçu d'un organisme de crédit (Cetelem, Cofidis, Franfinance, Sofinco, CA Consumer Finance, Créatis, Oney, Carmine, Lixxbail, DIAC, Mobilize, Stellantis Financial, BNP Personal Finance, Younited, Floa, Cofica...) = paiement du prix d'une voiture vendue -> Ventes / encaissements clients.
+- Virement reçu d'un particulier ou d'une société cliente, chèque remis, espèces versées = vente de véhicule -> Ventes / encaissements clients.
+- Commission reçue d'un organisme de financement ou d'un assureur / vendeur de garantie (Opteven, Mondial Car, Icare, Garantie Plus...) -> Commissions dépôt-vente seulement si c'est du dépôt-vente, sinon Autres entrées.
+- Achat aux enchères ou chez un marchand (BCA, VPauto, Alcopa, Autobid, Aramis, Autorola, Openlane, Adesa, Macadam, CarOnSale, concessionnaires) -> Achats de véhicules.
+- Virement émis vers un particulier : rachat de son véhicule -> Achats de véhicules ; s'il s'agit d'un véhicule en dépôt-vente (libellé dépôt, reversement, solde vente) -> Reversements aux vendeurs (dépôt-vente).
+- Auxiga, frais de gage, intérêts du découvert, agios, commission d'intervention -> Intérêts / agios / financement de stock.
+- ANTS, SIV, carte grise, certificat d'immatriculation -> Cartes grises (ANTS).
+- Autodistribution, Oscaro, carrossier, pneus, contrôle technique (Dekra, Autosur, Securitest), préparation esthétique -> Pièces et fournitures auto (ou Entretien / réparations pour une prestation).
+- La Centrale, Leboncoin, AutoScout24, Spoticar, ParuVendu, Autohero (abonnement d'annonces) -> Publicité / marketing.
+- Auto Cerfa, GTA Pro, logiciels -> Logiciels / abonnements.`,
+  "Auto Rac Ives": `Atelier de mécanique automobile. Encaissements carte et virements clients = réparations -> Ventes / encaissements clients ou Encaissements carte (TPE). Pièces (Autodistribution, Oscaro, Partner, Doyen, Groupauto, Alliance, Gefa, Würth) -> Pièces et fournitures auto. WebDataBays, GTA Pro -> Logiciels / abonnements.`,
+  "La Fabrique Restaurant": `Restaurant. Remises CB / TPE / Sumup / Zettle -> Encaissements carte (TPE) ; tickets restaurant (Edenred, Swile, Up, Pluxee) -> Ventes / encaissements clients ; Metro, Promocash, Transgourmet, primeurs, boucherie -> Achats alimentaires ; boissons -> Boissons.`,
+  "Le Bar L'Usine": `Bar. Remises CB / TPE -> Encaissements carte (TPE) ; brasseur, France Boissons, C10, cavistes -> Boissons ; SACEM, licences -> Impôts et taxes.`,
+  "SCI Mapo": `Société civile immobilière. Loyers reçus des locataires (souvent les sociétés du groupe) -> Loyers perçus ; échéance de prêt immobilier -> Remboursement d'emprunt ; taxe foncière -> Impôts et taxes ; assurance PNO -> Assurances ; syndic, travaux -> Entretien / réparations.`,
+  "Start Invest": `Holding. Dividendes / management fees reçus des filiales -> Autres entrées ; honoraires comptables / juridiques -> Honoraires.`,
+};
+
+/**
+ * Reclasse TOUTE une société avec son métier : l'IA revoit chaque libellé (pas seulement les nouveaux) et crée des
+ * règles propres à la société, prioritaires sur les règles du groupe. Les corrections manuelles du fondateur restent prioritaires.
+ */
+export async function reclassifyCompany(companyId: string) {
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) throw new Error("ANTHROPIC_API_KEY manquante.");
+  const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+  const [txs, manual, markers] = await Promise.all([
+    prisma.bankTransaction.findMany({
+      where: { companyId, account: { excluded: false } },
+      select: { label: true, amount: true, account: { select: { kind: true } } },
+    }),
+    prisma.categoryRule.findMany({ where: { source: "MANUEL", companyId: { in: [companyId, ""] } }, select: { key: true } }),
+    groupMarkers(),
+  ]);
+  const manualKeys = new Set(manual.map((r) => r.key));
+  const groups = new Map<string, { key: string; examples: string[]; count: number; total: number; inCount: number; escrow: boolean }>();
+  for (const t of txs) {
+    if (isInternal(t.label, companyId, markers)) continue;
+    const key = labelKey(t.label);
+    if (!key || manualKeys.has(key)) continue;
+    const g = groups.get(key) ?? { key, examples: [], count: 0, total: 0, inCount: 0, escrow: false };
+    g.count++;
+    g.total += t.amount;
+    if (t.amount > 0) g.inCount++;
+    if (g.examples.length < 2 && !g.examples.includes(t.label.slice(0, 100))) g.examples.push(t.label.slice(0, 100));
+    if (t.account.kind === "SEQUESTRE") g.escrow = true;
+    groups.set(key, g);
+  }
+  const list = [...groups.values()].sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+  const client = new Anthropic();
+  let learned = 0;
+  for (let i = 0; i < list.length; i += 100) {
+    const batch = list.slice(i, i + 100);
+    const lines = batch
+      .map((g) => `${g.key} | ex: ${g.examples.join(" / ")} | ${g.count} op. | total ${Math.round(g.total)} € | ${g.inCount === g.count ? "entrées" : g.inCount === 0 ? "sorties" : "mixte"}${g.escrow ? " | COMPTE SÉQUESTRE DÉPÔT-VENTE" : ""}`)
+      .join("\n");
+    const stream = client.beta.messages.stream({
+      model: "claude-opus-5-5",
+      max_tokens: 32000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: { format: betaZodOutputFormat(Classification) },
+      system: `Tu es l'expert-comptable de ${company.name} (${company.activity ?? "activité non précisée"}). Tu classes les libellés de SES opérations bancaires.
+${METIER[company.name] ?? ""}
+Catégories d'ENTRÉES autorisées : ${CATEGORIES_IN.join(" ; ")}.
+Catégories de SORTIES autorisées : ${CATEGORIES_OUT.join(" ; ")}.
+Une clé « entrées » reçoit une catégorie d'entrée, « sorties » une catégorie de sortie (« mixte » : selon le sens du total). Ne devine pas un fournisseur inconnu : « Autres dépenses » / « Autres entrées ». Réponds pour CHAQUE clé, recopiée à l'identique.`,
+      messages: [{ role: "user", content: `Classe ces ${batch.length} libellés (clé | exemples | nombre | total | sens) :\n${lines}` }],
+    });
+    const msg = await stream.finalMessage();
+    if (msg.stop_reason === "refusal") continue;
+    const text = msg.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text").map((b) => b.text).join("");
+    let parsed: z.infer<typeof Classification>;
+    try {
+      parsed = Classification.parse(JSON.parse(text));
+    } catch {
+      continue;
+    }
+    for (const c of parsed.classements) {
+      const g = batch.find((x) => x.key === c.cle);
+      if (!g || !(ALL_CATEGORIES as string[]).includes(c.categorie)) continue;
+      await prisma.categoryRule.upsert({
+        where: { key_companyId: { key: g.key, companyId } },
+        update: { category: c.categorie, source: "IA", example: g.examples[0] },
+        create: { key: g.key, companyId, category: c.categorie, source: "IA", example: g.examples[0] },
+      });
+      learned++;
+    }
+  }
+  const applied = await applyRules(companyId);
+  const left = await prisma.bankTransaction.count({ where: { companyId, category: null, account: { excluded: false } } });
+  console.log(`[comptabilite] ${company.name} reclassée : ${learned} libellé(s), ${applied} opération(s) modifiée(s), ${left} sans catégorie`);
+  return { libelles: learned, operationsModifiees: applied, sansCategorie: left };
+}

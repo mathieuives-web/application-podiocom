@@ -173,6 +173,7 @@ export async function runFullAnalysis(companyId: string, userId?: string | null)
     companyId,
     userId,
     task: `ANALYSE COMPLÈTE de ${company.name} (société=\"${company.name}\") à partir de tout l'historique disponible.
+0. Commence par resultats_societe : ce sont les chiffres de référence (gagné, ventes de véhicules, factures, loyers, ce qui manque). Ne contredis pas ces chiffres sans le prouver par une opération ou un document précis.
 1. Utilise lister_documents, lire_bilans, flux_mensuels (60 mois), lister_factures et lister_transactions pour tout lire.
 2. Rédige un diagnostic complet : évolution du CA, des marges et du résultat année par année ; saisonnalité mois par mois ;
    structure des charges et postes qui dérivent ; trésorerie et endettement ; clients et délais de paiement ; risques ;
@@ -210,4 +211,27 @@ corrige les agents qui se trompent avec corriger_agent, puis fais ton rapport au
 
 ${reports.join("\n\n")}`.slice(0, 150000),
   });
+}
+
+/**
+ * Remise à plat complète d'une société : reclassement de toutes ses opérations avec son métier,
+ * relecture des logiciels (Auto Cerfa, GTA Pro), puis analyse complète par son directeur financier.
+ */
+export async function redoCompany(companyId: string, userId?: string | null) {
+  const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+  console.log(`[remise à plat] ${company.name} : début`);
+  const { reclassifyCompany } = await import("@/lib/categorization");
+  const cls = await reclassifyCompany(companyId).catch((e) => ({ erreur: (e as Error).message }));
+  const { syncIntegration } = await import("@/lib/connectors");
+  const robots = await prisma.integration.findMany({ where: { companyId, provider: { in: ["AUTOCERFA", "GTAPRO"] } } });
+  for (const r of robots) await syncIntegration(r.id, { force: true }).catch((e) => console.log(`[remise à plat] ${r.provider} : ${(e as Error).message}`));
+  const { relinkStaff } = await import("@/lib/vehicles");
+  await relinkStaff(companyId).catch(() => undefined);
+  await prisma.appSetting.upsert({
+    where: { key: `remise-a-plat:${companyId}` },
+    update: { value: JSON.stringify({ at: new Date().toISOString(), classement: cls }) },
+    create: { key: `remise-a-plat:${companyId}`, value: JSON.stringify({ at: new Date().toISOString(), classement: cls }) },
+  });
+  console.log(`[remise à plat] ${company.name} : classement ${JSON.stringify(cls)}, analyse complète lancée`);
+  return runFullAnalysis(companyId, userId);
 }

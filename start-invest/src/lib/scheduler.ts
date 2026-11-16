@@ -42,6 +42,8 @@ export function startScheduler() {
   setTimeout(tick, 60 * 1000);
   // Au démarrage (nouvelle version en ligne) : les robots en échec réessaient tout de suite, sans attendre leur créneau.
   setTimeout(() => void retryFailedRobots().catch((e) => console.error("[planificateur] robots", e)), 2 * 60 * 1000);
+  // Remise à plat demandée par le fondateur (une seule fois par version de la consigne).
+  setTimeout(() => void oneShotRedo().catch((e) => console.error("[planificateur] remise à plat", e)), 4 * 60 * 1000);
   setInterval(tick, 10 * 60 * 1000);
   console.log("[planificateur] actif : synchro horaire + contrôle quotidien");
 }
@@ -52,5 +54,17 @@ async function retryFailedRobots() {
   for (const i of failed) {
     console.log(`[planificateur] nouvel essai du robot ${i.provider} (${i.companyId})`);
     await syncIntegration(i.id, { force: true }).catch(() => undefined);
+  }
+}
+
+const REDO = [{ key: "redo:la-fabrique-automobile:v1", company: "La Fabrique Automobile" }];
+
+async function oneShotRedo() {
+  const { redoCompany } = await import("@/lib/daily-control");
+  for (const r of REDO) {
+    if (await prisma.appSetting.findUnique({ where: { key: r.key } })) continue;
+    await prisma.appSetting.create({ data: { key: r.key, value: new Date().toISOString() } });
+    const c = await prisma.company.findFirst({ where: { name: r.company } });
+    if (c) await redoCompany(c.id);
   }
 }

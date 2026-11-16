@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/session";
+import { isAdmin, requireUser } from "@/lib/session";
 import { eur } from "@/lib/finance";
 import { groupResults, type CompanyResults } from "@/lib/results";
+import { redoCompanyAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,14 +18,21 @@ function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: 
   );
 }
 
-function Company({ r }: { r: CompanyResults }) {
+function Company({ r, admin }: { r: CompanyResults; admin: boolean }) {
   const b = r.banque;
   const last = r.bilans[0];
   return (
     <section className="card space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-semibold text-lg">{r.societe}</h2>
-        <p className="text-xs text-slate-500">
+        {admin && (
+          <form action={redoCompanyAction.bind(null, r.id)}>
+            <button className="btn-secondary text-xs" title="Reclasse toutes les opérations avec le métier de la société, relit Auto Cerfa / GTA Pro, puis l'agent comptable refait l'analyse complète">
+              Tout refaire (agent comptable){r.remiseAPlat ? ` · dernière fois le ${new Date(r.remiseAPlat).toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" })}` : ""}
+            </button>
+          </form>
+        )}
+        <p className="text-xs text-slate-500 basis-full">
           Banque : {b.comptes} compte(s){b.derniereOperation ? `, dernière opération le ${b.derniereOperation.toLocaleDateString("fr-FR")}` : ""}
         </p>
       </div>
@@ -116,8 +124,10 @@ function Company({ r }: { r: CompanyResults }) {
   );
 }
 
-export default async function ResultatsPage() {
-  await requireUser();
+export default async function ResultatsPage({ searchParams }: { searchParams: Promise<{ msg?: string }> }) {
+  const me = await requireUser();
+  const { msg } = await searchParams;
+  const admin = isAdmin(me.role);
   const year = new Date().getFullYear();
   const all = await groupResults(year);
   const total = all.reduce((s, r) => s + (r.banque.moisCouverts ? r.banque.resultatActivite : 0), 0);
@@ -131,7 +141,8 @@ export default async function ResultatsPage() {
         </p>
         <p className="mt-2 text-sm">Groupe, {year} : <strong className={total >= 0 ? "text-emerald-700" : "text-red-700"}>{eur(total)}</strong></p>
       </div>
-      {all.map((r) => <Company key={r.societe} r={r} />)}
+      {msg && <p className="card text-sm bg-sky-50 border-sky-200 text-sky-900">{msg}</p>}
+      {all.map((r) => <Company key={r.societe} r={r} admin={admin} />)}
     </div>
   );
 }
