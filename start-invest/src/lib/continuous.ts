@@ -71,8 +71,8 @@ export async function runNextAgentJob() {
     const today = await prisma.agentRun.count({ where: { kind: "CONTINU", startedAt: { gte: dayStart } } });
     if (today >= max) return null;
     // Crédit IA épuisé : inutile d'enchaîner des échecs. On reteste toutes les 15 minutes pour repartir dès la recharge.
-    const credit = await prisma.appSetting.findUnique({ where: { key: "ia-credit-epuise" } });
-    if (credit && Date.now() - Number(credit.value) < 15 * 60 * 1000) return null;
+    const { creditRecentlyExhausted } = await import("@/lib/ai-cost");
+    if (await creditRecentlyExhausted(15)) return null;
     // Budget IA du fondateur (AI_MONTHLY_BUDGET_EUR) : la rotation s'arrête à 85 % du budget du jour
     // (le reste est gardé pour le contrôle du matin, les robots et ses propres demandes) et reprend le lendemain.
     const { canSpendAutomatic } = await import("@/lib/ai-cost");

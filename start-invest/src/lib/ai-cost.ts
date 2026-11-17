@@ -59,3 +59,22 @@ export async function canSpendAutomatic(share = 1) {
   const s = await aiSpendStatus();
   return s.month < s.budget && s.today < s.dailyBudget * share;
 }
+
+const CREDIT_KEY = "ia-credit-epuise";
+
+/** Note qu'une erreur « crédit épuisé » vient d'arriver (n'importe quel appel IA). */
+export async function noteCreditError(message: string) {
+  if (!/credit balance is too low|purchase credits/i.test(message)) return false;
+  await prisma.appSetting.upsert({ where: { key: CREDIT_KEY }, update: { value: String(Date.now()) }, create: { key: CREDIT_KEY, value: String(Date.now()) } });
+  return true;
+}
+
+/** Crédit IA épuisé il y a moins de `minutes` : inutile de lancer un travail IA automatique. */
+export async function creditRecentlyExhausted(minutes = 15) {
+  const s = await prisma.appSetting.findUnique({ where: { key: CREDIT_KEY } });
+  return Boolean(s && Date.now() - Number(s.value) < minutes * 60 * 1000);
+}
+
+export async function clearCreditError() {
+  await prisma.appSetting.deleteMany({ where: { key: CREDIT_KEY } });
+}

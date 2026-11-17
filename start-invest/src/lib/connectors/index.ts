@@ -236,6 +236,9 @@ export async function syncIntegration(integrationId: string, opts: { force?: boo
       const { msClient } = await import("./microsoft");
       await (await msClient(integ.id)).call("/me?$select=id");
       result = { accounts: 0, transactions: 0, invoices: 0 };
+    } else if (["GTAPRO", "AUTOCERFA"].includes(integ.provider) && !opts.force && (await import("@/lib/ai-cost").then((m) => m.creditRecentlyExhausted(60)))) {
+      // Robots guidés par l'IA : en pause tant que le crédit IA est épuisé (aucune tentative inutile).
+      return { accounts: 0, transactions: 0, invoices: 0 };
     } else if (integ.provider === "GTAPRO") {
       const r = await syncGtaPro(integ, creds as unknown as GtaProCreds, opts.force);
       if (r.skipped) return r;
@@ -256,6 +259,7 @@ export async function syncIntegration(integrationId: string, opts: { force?: boo
   } catch (e) {
     if ((e as { soft?: boolean }).soft) throw e; // simple « trop tôt » : l'état de la connexion ne change pas
     console.log(`[synchro] ${integ.provider} ${integ.companyId} ÉCHEC : ${(e as Error).message.slice(0, 300)}`);
+    await import("@/lib/ai-cost").then((m) => m.noteCreditError((e as Error).message)).catch(() => false);
     await prisma.integration.update({
       where: { id: integ.id },
       data: { status: "ERROR", lastError: (e as Error).message.slice(0, 500) },

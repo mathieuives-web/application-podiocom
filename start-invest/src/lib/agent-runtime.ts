@@ -8,7 +8,7 @@ import { commissionStatement, currentMonth, employeeFile } from "@/lib/team";
 import { employeeAgentSlug } from "@/lib/agents";
 import { EXTRA_TOOL_NAMES, extraTools, runExtraTool } from "@/lib/agent-tools-extra";
 import { shineMcpServersFor, SHINE_READ_TOOLS } from "@/lib/connectors";
-import { trackAiSpend } from "@/lib/ai-cost";
+import { clearCreditError, noteCreditError, trackAiSpend } from "@/lib/ai-cost";
 
 // Moteur d'exécution du board : chaque agent tourne sur l'API Claude avec son fichier
 // .claude/agents/<slug>.md comme prompt système, des outils en LECTURE SEULE sur les
@@ -535,6 +535,7 @@ export async function executeAgent(opts: {
         ...(shine.length ? { mcp_servers: shine.map((x) => ({ type: "url" as const, name: x.name, url: x.url, authorization_token: x.token })) } : {}),
       });
       spent += await trackAiSpend(agent.slug, response.model ?? model, response.usage);
+      if (turn === 0) await clearCreditError().catch(() => undefined);
 
       const text = response.content
         .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
@@ -596,6 +597,7 @@ export async function executeAgent(opts: {
   } catch (e) {
     const message = e instanceof Anthropic.APIError ? `Erreur API Claude (${e.status}) : ${e.message}` : (e as Error).message;
     console.log(`[agent] ${agent.slug} ÉCHEC : ${message.slice(0, 400)}`);
+    await noteCreditError(message).catch(() => false);
     await prisma.agentRun.update({ where: { id: run.id }, data: { status: "ERROR", error: message, finishedAt: new Date(), costEur: spent } });
     if (depth > 0) return { runId: run.id, output: `L'agent ${agent.title} n'a pas pu répondre : ${message}` };
     throw e;
