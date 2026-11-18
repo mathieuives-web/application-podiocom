@@ -57,6 +57,8 @@ export async function runDailyControl(opts: { force?: boolean } = {}) {
     const { canSpendAutomatic, aiSpendStatus } = await import("@/lib/ai-cost");
     if (!agentsConfigured()) {
       log.push("Agents IA non activés (ANTHROPIC_API_KEY manquante) : pas de rapport des DAF.");
+    } else if (await import("@/lib/ai-cost").then((m) => m.creditRecentlyExhausted(15))) {
+      log.push("Crédit IA épuisé : rapports des agents reportés (rechargez sur console.anthropic.com → Plans & Billing).");
     } else if (!(await canSpendAutomatic(1))) {
       const st = await aiSpendStatus();
       log.push(`Budget IA atteint (${st.month.toFixed(0)} € ce mois sur ${st.budget} €) : rapports des agents reportés.`);
